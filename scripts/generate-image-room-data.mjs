@@ -1,0 +1,384 @@
+import { createHash } from 'node:crypto'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import vm from 'node:vm'
+
+import sharp from 'sharp'
+
+const scriptDir = path.dirname(fileURLToPath(import.meta.url))
+const studyRoot = path.resolve(scriptDir, '..')
+const prototypeRoot = path.join(scriptDir, 'image-room-source')
+
+function extractLiteral(source, name) {
+  const marker = `const ${name} =`
+  const markerIndex = source.indexOf(marker)
+  if (markerIndex < 0) throw new Error(`Could not find ${name}`)
+  let start = markerIndex + marker.length
+  while (/\s/.test(source[start] ?? '')) start += 1
+  const open = source[start]
+  const close = open === '{' ? '}' : open === '[' ? ']' : ''
+  if (!close) throw new Error(`${name} is not an object or array literal`)
+
+  let depth = 0
+  let quote = ''
+  let escaped = false
+  for (let index = start; index < source.length; index += 1) {
+    const character = source[index]
+    if (quote) {
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === quote) quote = ''
+      continue
+    }
+    if (character === '"' || character === "'" || character === '`') {
+      quote = character
+      continue
+    }
+    if (character === open) depth += 1
+    if (character === close) {
+      depth -= 1
+      if (depth === 0) return source.slice(start, index + 1)
+    }
+  }
+  throw new Error(`Unclosed ${name} literal`)
+}
+
+function evaluateLiteral(source, name) {
+  return vm.runInNewContext(`(${extractLiteral(source, name)})`, Object.create(null), { timeout: 1_000 })
+}
+
+function dedupeEdges(edges) {
+  const unique = new Map()
+  for (const edge of edges) {
+    const ends = [edge.from, edge.to].sort()
+    unique.set(`${ends[0]}|${ends[1]}`, { ...edge, from: ends[0], to: ends[1] })
+  }
+  return [...unique.values()]
+}
+
+const facingCode = (facing) => ({ north: 'n', east: 'e', south: 's', west: 'w' })[facing] ?? 's'
+
+async function imageRecord(fileName) {
+  const absolutePath = path.join(studyRoot, 'public', 'assets', 'rooms', fileName)
+  const bytes = await readFile(absolutePath)
+  const metadata = await sharp(bytes).metadata()
+  return {
+    url: `assets/rooms/${fileName}`,
+    width: metadata.width,
+    height: metadata.height,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    sourcePath: absolutePath,
+  }
+}
+
+const safeFileName = (value) => value.replace(/[^a-z0-9_-]+/gi, '-').toLowerCase()
+
+async function createCutout(sourcePath, image, points, destinationPath) {
+  const pixelPoints = points.map((point) => ({ x: (point.x / 100) * image.width, y: (point.y / 100) * image.height }))
+  const left = Math.max(0, Math.floor(Math.min(...pixelPoints.map((point) => point.x))))
+  const top = Math.max(0, Math.floor(Math.min(...pixelPoints.map((point) => point.y))))
+  const right = Math.min(image.width, Math.ceil(Math.max(...pixelPoints.map((point) => point.x))) + 1)
+  const bottom = Math.min(image.height, Math.ceil(Math.max(...pixelPoints.map((point) => point.y))) + 1)
+  const width = Math.max(1, right - left)
+  const height = Math.max(1, bottom - top)
+  const polygon = pixelPoints.map((point) => `${point.x - left},${point.y - top}`).join(' ')
+  const mask = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><polygon points="${polygon}" fill="#fff"/></svg>`)
+  await sharp(sourcePath)
+    .extract({ left, top, width, height })
+    .ensureAlpha()
+    .composite([{ input: mask, blend: 'dest-in' }])
+    .png({ compressionLevel: 9 })
+    .toFile(destinationPath)
+  return { x: left, y: top, width, height }
+}
+
+function seatForegroundPoints(seat) {
+  if (seat.foregroundMask?.length >= 3) return seat.foregroundMask
+  if (seat.occlusion) {
+    return [
+      { x: seat.occlusion.x1, y: seat.occlusion.y1 }, { x: seat.occlusion.x2, y: seat.occlusion.y1 },
+      { x: seat.occlusion.x2, y: seat.occlusion.y2 }, { x: seat.occlusion.x1, y: seat.occlusion.y2 },
+    ]
+  }
+  return [
+    { x: seat.sit.x - 4, y: seat.sit.y - 1 }, { x: seat.sit.x + 4, y: seat.sit.y - 1 },
+    { x: seat.sit.x + 4, y: seat.sit.y + 4 }, { x: seat.sit.x - 4, y: seat.sit.y + 4 },
+  ]
+}
+
+async function compileRoomCutouts(room, image, assetOutputRoot) {
+  const roomOutput = path.join(assetOutputRoot, room.id)
+  await mkdir(roomOutput, { recursive: true })
+  const occluders = []
+  for (const occluder of room.occluders) {
+    const fileName = `object-${safeFileName(occluder.id)}.png`
+    const placement = await createCutout(image.sourcePath, image, occluder.points, path.join(roomOutput, fileName))
+    occluders.push({
+      ...occluder,
+      asset: { url: `assets/rooms/occlusion/${room.id}/${fileName}`, ...placement },
+    })
+  }
+  const seats = []
+  for (const seat of room.seats) {
+    const fileName = `seat-${safeFileName(seat.id)}.png`
+    const placement = await createCutout(image.sourcePath, image, seatForegroundPoints(seat), path.join(roomOutput, fileName))
+    seats.push({
+      ...seat,
+      foregroundAsset: { url: `assets/rooms/occlusion/${room.id}/${fileName}`, ...placement },
+    })
+  }
+  const { sourcePath: _sourcePath, ...publicImage } = image
+  return { ...room, image: publicImage, occluders, seats }
+}
+
+function libraryRoomData(appSource, mapMask, roomImage) {
+  const walkableTiles = evaluateLiteral(appSource, 'WALKABLE_TILES')
+  const chairTargets = evaluateLiteral(appSource, 'CHAIR_SEAT_TARGETS')
+  const nodes = Object.entries(walkableTiles).map(([id, node]) => ({ id, x: node.x, y: node.y, z: 0 }))
+  const edges = []
+  for (const [id, node] of Object.entries(walkableTiles)) {
+    for (const neighbor of node.neighbors ?? []) {
+      if (walkableTiles[neighbor]) edges.push({ from: id, to: neighbor, kind: 'walk' })
+    }
+  }
+  // The preserved prototype omitted three visible aisle connections, forcing
+  // A* to detour through the entrance or loop around the furniture rows.
+  edges.push({ from: 'middle-left-aisle', to: 'upper-left-aisle', kind: 'walk' })
+  edges.push({ from: 'lower-right-aisle', to: 'right-spine-lower', kind: 'walk' })
+  edges.push({ from: 'upper-center-aisle', to: 'middle-center-aisle', kind: 'walk' })
+
+  const baseNodes = [...nodes]
+  const seats = chairTargets.map((seat) => {
+    const approachNodeId = `approach:${seat.seatId}`
+    const deltaX = ((seat.standX - seat.sitX) / 100) * roomImage.width
+    const deltaY = ((seat.standY - seat.sitY) / 100) * roomImage.height
+    const distance = Math.hypot(deltaX, deltaY)
+    const scale = distance > 56 ? 56 / distance : 1
+    const approach = {
+      id: approachNodeId,
+      x: seat.sitX + (seat.standX - seat.sitX) * scale,
+      y: seat.sitY + (seat.standY - seat.sitY) * scale,
+      z: 0,
+    }
+    nodes.push(approach)
+    const entryNodeId = baseNodes
+      .map((node) => ({
+        id: node.id,
+        distance: Math.hypot(
+          ((node.x - approach.x) / 100) * roomImage.width,
+          ((node.y - approach.y) / 100) * roomImage.height,
+        ),
+      }))
+      .sort((left, right) => left.distance - right.distance)[0]?.id ?? 'bottom-center-aisle'
+    edges.push({ from: entryNodeId, to: approachNodeId, kind: 'walk' })
+    return {
+      id: seat.seatId,
+      label: seat.label,
+      approachNodeId,
+      sit: { x: seat.sitX, y: seat.sitY, z: Number(seat.seatZ ?? 0) },
+      facing: facingCode(seat.facing),
+      foregroundMask: seat.foregroundMask ?? null,
+      occlusion: seat.occlusion ?? null,
+    }
+  })
+  const occluderTypes = new Set(['desk', 'sofa', 'shelf', 'plant', 'wall-fixture'])
+  const occluders = mapMask.blockedPolygons.filter((zone) => occluderTypes.has(zone.type)).map((zone) => ({
+    id: zone.id,
+    type: zone.type,
+    points: zone.points.map((point) => ({
+      x: (point.x / mapMask.imageWidth) * 100,
+      y: (point.y / mapMask.imageHeight) * 100,
+    })),
+    depthY: (Math.max(...zone.points.map((point) => point.y)) / mapMask.imageHeight) * 100,
+  }))
+
+  return {
+    id: 'library',
+    title: 'Library',
+    spawnNodeId: 'bottom-center-aisle',
+    nodes,
+    edges: dedupeEdges(edges),
+    seats,
+    occluders,
+    actors: {},
+  }
+}
+
+function layoutPoint(point, roomImage, fallbackZ = 0) {
+  return {
+    x: (point[0] / roomImage.width) * 100,
+    y: (point[1] / roomImage.height) * 100,
+    z: point[2] ?? fallbackZ,
+  }
+}
+
+function layoutPolygon(points, roomImage) {
+  return points.map((point) => ({
+    x: (point[0] / roomImage.width) * 100,
+    y: (point[1] / roomImage.height) * 100,
+  }))
+}
+
+function chimRoomData(roomImage, layout) {
+  if (layout.image.width !== roomImage.width
+    || layout.image.height !== roomImage.height
+    || layout.image.sha256 !== roomImage.sha256) {
+    throw new Error('Chim Alan calibration does not match the byte-locked room image')
+  }
+  const nodes = layout.nodes.map((node) => ({ id: node.id, ...layoutPoint(node.point, roomImage) }))
+  const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  const edges = layout.edges.map((edge) => ({
+    from: edge.from,
+    to: edge.to,
+    kind: edge.kind ?? (nodeById.get(edge.from).z === nodeById.get(edge.to).z ? 'walk' : 'stair'),
+  }))
+  const seats = layout.seats.map((seat) => {
+    const actorAnchor = layoutPoint(seat.sit, roomImage)
+    const hitArea = layoutPolygon(seat.foregroundMask, roomImage)
+    return {
+      id: seat.id,
+      label: seat.label,
+      approachNodeId: seat.approachNodeId,
+      sit: actorAnchor,
+      approach: nodeById.get(seat.approachNodeId),
+      actorAnchor,
+      hitArea,
+      facing: seat.facing,
+      foregroundMask: hitArea,
+      occlusion: null,
+    }
+  })
+
+  return {
+    id: 'chim-alan',
+    title: 'Giriş',
+    spawnNodeId: 'entrance',
+    nodes,
+    edges: dedupeEdges(edges),
+    seats,
+    occluders: [],
+    actors: layout.actors,
+  }
+}
+
+function grassAmphitheatreRoomData(roomImage, layout) {
+  if (layout.image.width !== roomImage.width
+    || layout.image.height !== roomImage.height
+    || layout.image.sha256 !== roomImage.sha256) {
+    throw new Error('Grass amphitheatre calibration does not match the byte-locked room image')
+  }
+
+  const nodes = [
+    ...Object.entries(layout.groundNodes).map(([id, point]) => ({ id, ...layoutPoint(point, roomImage) })),
+    ...layout.stairs.left.map((node) => ({ id: node.id, ...layoutPoint(node.point, roomImage) })),
+    ...layout.stairs.right.map((node) => ({ id: node.id, ...layoutPoint(node.point, roomImage) })),
+    ...layout.rows.flatMap((row) => row.seats.map((seat) => ({
+      id: seat.nodeId,
+      ...layoutPoint([...seat.approach, row.z], roomImage),
+    }))),
+  ]
+
+  const edges = [
+    { from: 'entrance', to: 'lower-path', kind: 'walk' },
+    { from: 'lower-path', to: 'middle-path', kind: 'walk' },
+    { from: 'middle-path', to: 'rock', kind: 'walk' },
+    { from: 'middle-path', to: 'upper-path', kind: 'walk' },
+    { from: 'upper-path', to: 'stair-0', kind: 'walk' },
+    { from: 'middle-path', to: 'right-stair-0', kind: 'walk' },
+    ...layout.stairs.left.slice(1).map((node, index) => ({
+      from: layout.stairs.left[index].id,
+      to: node.id,
+      kind: node.point[2] === layout.stairs.left[index].point[2] ? 'walk' : 'stair',
+    })),
+    ...layout.stairs.right.slice(1).map((node, index) => ({
+      from: layout.stairs.right[index].id,
+      to: node.id,
+      kind: node.point[2] === layout.stairs.right[index].point[2] ? 'walk' : 'stair',
+    })),
+    { from: 'stair-4', to: 'courtyard', kind: 'walk' },
+    { from: 'right-stair-4', to: 'courtyard', kind: 'walk' },
+    { from: 'courtyard', to: 'spark', kind: 'walk' },
+    ...layout.rows.flatMap((row) => {
+      const nodeIds = row.seats.map((seat) => seat.nodeId)
+      return [
+        { from: `stair-${row.number}`, to: nodeIds[0], kind: 'walk' },
+        ...nodeIds.slice(1).map((nodeId, index) => ({ from: nodeIds[index], to: nodeId, kind: 'walk' })),
+        { from: nodeIds.at(-1), to: `right-stair-${row.number}`, kind: 'walk' },
+      ]
+    }),
+  ]
+
+  const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  const seats = layout.rows.flatMap((row) => row.seats.map((seat) => {
+    const actorAnchor = layoutPoint([...seat.actorAnchor, row.z], roomImage)
+    const hitArea = layoutPolygon(seat.frontMask, roomImage)
+    return {
+      id: seat.id,
+      label: row.label,
+      approachNodeId: seat.nodeId,
+      sit: actorAnchor,
+      approach: nodeById.get(seat.nodeId),
+      actorAnchor,
+      hitArea,
+      facing: 's',
+      foregroundMask: hitArea,
+      occlusion: null,
+    }
+  }))
+
+  const occluders = layout.rows.map((row) => {
+    const points = layoutPolygon(row.frontMask, roomImage)
+    return {
+      id: `amphi-row-front-${row.number}`,
+      type: 'amphitheatre-front',
+      points,
+      depthY: Math.max(...points.map((point) => point.y)),
+    }
+  })
+
+  return {
+    id: 'grass-amphitheatre',
+    title: 'Çim Alan',
+    spawnNodeId: 'entrance',
+    nodes,
+    edges: dedupeEdges(edges),
+    seats,
+    occluders,
+    actors: {
+      spark: { nodeId: 'spark', name: 'Spark', label: 'rtAI · AI Host' },
+      rock: { nodeId: 'rock', name: 'Rock', label: 'Rock' },
+    },
+  }
+}
+
+export async function generateImageRoomData(
+  outputPath = path.join(studyRoot, 'src', 'rooms', 'data', 'image-rooms.generated.json'),
+  assetOutputRoot = path.join(studyRoot, 'public', 'assets', 'rooms', 'occlusion'),
+) {
+  const [appSource, chimLayout, grassLayout, libraryMapMask, libraryImage, chimImage, grassImage] = await Promise.all([
+    readFile(path.join(prototypeRoot, 'app.js'), 'utf8'),
+    readFile(path.join(studyRoot, 'src', 'rooms', 'data', 'chim-alan-courtyard-layout.json'), 'utf8').then(JSON.parse),
+    readFile(path.join(studyRoot, 'src', 'rooms', 'data', 'chim-alan-amphitheatre-layout.json'), 'utf8').then(JSON.parse),
+    readFile(path.join(prototypeRoot, 'data', 'library-habbo-map-mask.json'), 'utf8').then(JSON.parse),
+    imageRecord('library-wide.png'),
+    imageRecord('tedu-orta-bahce-chillin-cafe-wide-r4.png'),
+    imageRecord('chim-alan-wide.png'),
+  ])
+  const library = await compileRoomCutouts(libraryRoomData(appSource, libraryMapMask, libraryImage), libraryImage, assetOutputRoot)
+  const chim = await compileRoomCutouts(chimRoomData(chimImage, chimLayout), chimImage, assetOutputRoot)
+  const grass = await compileRoomCutouts(grassAmphitheatreRoomData(grassImage, grassLayout), grassImage, assetOutputRoot)
+  const output = {
+    schemaVersion: 1,
+    rooms: { library, 'chim-alan': chim, 'grass-amphitheatre': grass },
+  }
+  await mkdir(path.dirname(outputPath), { recursive: true })
+  await writeFile(outputPath, `${JSON.stringify(output, null, 2)}\n`, 'utf8')
+  return outputPath
+}
+
+const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : ''
+if (invokedPath === import.meta.url) {
+  const outputPath = await generateImageRoomData(process.argv[2] ? path.resolve(process.argv[2]) : undefined)
+  process.stdout.write(`${outputPath}\n`)
+}

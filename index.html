@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <base href="%BASE_URL%" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="RadioTEDU Social is a live virtual campus where students meet through avatars, study together, chat safely, join events and play campus games." />
+    <meta name="robots" content="index,follow,max-image-preview:large" />
+    <link rel="canonical" href="https://radiotedu.com/social/" />
+    <link rel="alternate" hreflang="en" href="https://radiotedu.com/social/" />
+    <link rel="alternate" hreflang="x-default" href="https://radiotedu.com/social/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="RadioTEDU" />
+    <meta property="og:title" content="RadioTEDU Social" />
+    <meta property="og:description" content="Meet, study and play together in RadioTEDU's live virtual campus." />
+    <meta property="og:url" content="https://radiotedu.com/social/" />
+    <meta property="og:image" content="https://radiotedu.com/social/assets/rooms/tedu-a-blok-library-wide-r2.png" />
+    <meta property="og:image:alt" content="RadioTEDU Social virtual-campus Library room" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="RadioTEDU Social" />
+    <meta name="twitter:description" content="Meet, study and play together in RadioTEDU's live virtual campus." />
+    <meta name="twitter:image" content="https://radiotedu.com/social/assets/rooms/tedu-a-blok-library-wide-r2.png" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' https://stream.radiotedu.com; connect-src 'self' https://radiotedu.com https://www.radiotedu.com https://stream.radiotedu.com ws://127.0.0.1:* ws://localhost:* wss://radiotedu.com wss://www.radiotedu.com; worker-src 'self' blob:" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#101b22" />
+    <title>RadioTEDU Social</title>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "RadioTEDU Social",
+      "url": "https://radiotedu.com/social/",
+      "description": "A live virtual campus where students meet through avatars, study together, use moderated room chat, join events and play campus games.",
+      "applicationCategory": "GameApplication",
+      "operatingSystem": "Any modern web browser",
+      "inLanguage": "en",
+      "dateModified": "2026-08-28",
+      "publisher": {
+        "@type": "Organization",
+        "name": "RadioTEDU",
+        "url": "https://radiotedu.com/"
+      }
+    }
+    </script>
+  </head>
+  <body>
+    <main id="study-game" aria-label="RadioTEDU Social world">
+      <div id="game-canvas" aria-label="Campus room"></div>
+      <div id="game-ui">
+        <section class="study-gate" data-study-boot aria-live="polite" aria-busy="true">
+          <div class="study-entry-room" aria-hidden="true">
+            <img src="assets/rooms/library-wide.png" alt="" />
+            <span class="study-entry-shade"></span>
+            <span class="study-entry-avatar"></span>
+            <span class="study-entry-bubble">Getting the campus ready…</span>
+          </div>
+          <main class="study-entry-card">
+            <div class="study-entry-brand" aria-label="RadioTEDU Social World"><img class="radiotedu-wordmark study-entry-wordmark" src="assets/brand/radiotedu-logo-white.png" alt="" /><b><small>SOCIAL WORLD</small></b></div>
+            <div class="study-entry-stage">
+              <p class="study-entry-kicker">TEDU CAMPUS · LIVE SOCIAL &amp; STUDY ROOMS</p>
+              <h1>Social World is loading.</h1>
+              <p class="study-entry-copy">Preparing the campus, your account and the live rooms.</p>
+              <div class="study-boot-progress" role="progressbar" aria-label="Loading RadioTEDU Social"><i></i></div>
+              <a class="study-entry-help" href="./">Taking too long? Reload Social</a>
+            </div>
+          </main>
+        </section>
+      </div>
+    </main>
+    <script src="./study-loader-recovery.js" defer></script>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,179 @@
+export type StudyRoomId = 'library' | 'chim-alan' | 'grass-amphitheatre' | 'sports-center' | 'auditorium' | 'learning-lab'
+
+export interface StudyAccount {
+  id: string
+  displayName: string
+  authenticated: boolean
+}
+
+export interface StudyPointBalance {
+  global: number
+  studyToday: number
+  dailyCap: number
+  authoritative: boolean
+}
+
+export interface StudyPresence {
+  userId: string
+  displayName: string
+  roomId: StudyRoomId
+  nodeId: string
+  position?: { x: number; y: number }
+  seatId: string | null
+  color: number
+  equippedWearableIds?: readonly string[]
+}
+
+export interface StudyChatMessage {
+  id: string
+  userId: string
+  displayName: string
+  text: string
+  createdAt: number
+}
+
+export interface StudySeatReservation {
+  roomId: StudyRoomId
+  seatId: string
+  reservedAt: number
+}
+
+export interface StudySession {
+  account: StudyAccount
+  points: StudyPointBalance
+  ownedWearableIds: readonly string[]
+  equippedWearableIds: readonly string[]
+}
+
+export interface StudyTimeSummary {
+  todaySeconds: number
+  monthSeconds: number
+  totalSeconds: number
+}
+
+export type StudyLeaderboardPeriod = 'week' | 'month' | 'all'
+
+export interface StudyLeaderboardEntry {
+  rank: number
+  userId: string
+  displayName: string
+  studySeconds: number
+  streakDays: number
+  isCurrentUser: boolean
+}
+
+export interface StudyRoomOverview {
+  roomId: StudyRoomId
+  occupancy: number
+  capacity: number
+  instanceCount: number
+}
+
+export interface StudyHomeSnapshot {
+  activePlayers: number
+  summary: StudyTimeSummary
+  rooms: readonly StudyRoomOverview[]
+  leaderboard: Readonly<Record<StudyLeaderboardPeriod, readonly StudyLeaderboardEntry[]>>
+  generatedAt: string | null
+}
+
+export interface StudyRoomInstance {
+  id: string
+  roomId: StudyRoomId
+  number: number
+  occupancy: number
+  capacity: number
+  preferredInstanceFull: boolean
+}
+
+export interface StudyWorldEvent {
+  id: string
+  title: string
+  description: string
+  location: string
+  startsAt: string | null
+  endsAt: string | null
+  rewardGold: number
+  registered: boolean
+  status: 'upcoming' | 'active' | 'completed'
+}
+
+export type SocialArcadeChoice = 'left' | 'center' | 'right'
+
+export interface SocialArcadeRoundResult {
+  correct: boolean
+  validTiming: boolean
+  roundScore: number
+  elapsedMs: number
+  completedRound: number
+}
+
+export interface SocialArcadeSession {
+  id: string
+  status: 'active' | 'completed'
+  round: number
+  totalRounds: number
+  score: number
+  prompt: SocialArcadeChoice | null
+  nonce: string | null
+  promptExpiresAt: string | null
+  expiresAt: string | null
+  final: boolean
+}
+
+export interface SocialArcadeSnapshot {
+  session: SocialArcadeSession
+  result?: SocialArcadeRoundResult
+  pointsAwarded?: number
+  spendablePoints?: number
+  verification?: 'server-authoritative' | 'local-preview'
+}
+
+export type StudyPlayerReportReason = 'harassment' | 'spam' | 'unsafe-profile' | 'other'
+
+export interface StudyHeartbeatInput {
+  roomId: StudyRoomId
+  nodeId: string
+  seatId: string | null
+  position: { x: number; y: number }
+  interaction: 'idle' | 'walking' | 'seated' | 'spark' | 'rock'
+  focused: boolean
+  foreground: boolean
+}
+
+export type Awaitable<T> = T | Promise<T>
+
+export interface StudyAdapter {
+  readonly authoritativeInventory?: boolean
+  session(): StudySession
+  roomInstance?(roomId: StudyRoomId): StudyRoomInstance | null
+  presence(roomId: StudyRoomId): readonly StudyPresence[]
+  enterRoom(roomId: StudyRoomId, nodeId: string, preferredInstanceId?: string | null): Awaitable<void>
+  reserveSeat(roomId: StudyRoomId, seatId: string): Awaitable<StudySeatReservation>
+  releaseSeat(): Awaitable<void>
+  equipWearable(id: string, slot?: string): Awaitable<StudySession>
+  purchaseWearable(id: string, idempotencyKey: string): Awaitable<StudySession>
+  syncGoldBalance?(points: number): void
+  sendChat(text: string, roomId?: StudyRoomId): Awaitable<StudyChatMessage>
+  reportPlayer?(targetUserId: string, roomId: StudyRoomId, reason: StudyPlayerReportReason): Promise<void>
+  listEvents?(): Promise<readonly StudyWorldEvent[]>
+  registerEvent?(eventId: string): Promise<StudyWorldEvent>
+  startPoolDive?(): Promise<SocialArcadeSnapshot>
+  playPoolDiveRound?(sessionId: string, nonce: string, choice: SocialArcadeChoice): Promise<SocialArcadeSnapshot>
+  initialize?(): Promise<void>
+  refreshPresence?(roomId: StudyRoomId): Promise<readonly StudyPresence[]>
+  refreshChat?(roomId: StudyRoomId): Promise<readonly StudyChatMessage[]>
+  heartbeatPresence?(input: Omit<StudyHeartbeatInput, 'interaction' | 'focused' | 'foreground'>): Promise<void>
+  startStudySession?(roomId: StudyRoomId, clientSessionId: string): Promise<void>
+  heartbeatStudySession?(input: StudyHeartbeatInput): Promise<number>
+  finishStudySession?(): Promise<StudyTimeSummary>
+  fetchSummary?(): Promise<StudyTimeSummary>
+  fetchHome?(): Promise<StudyHomeSnapshot>
+}
+
+export class StudyAdapterError extends Error {
+  constructor(readonly code: string, message = code) {
+    super(`${code}: ${message}`)
+    this.name = 'StudyAdapterError'
+  }
+}

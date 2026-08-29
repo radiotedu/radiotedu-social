@@ -1,0 +1,266 @@
+{
+  "schemaVersion": 2,
+  "provenance": {
+    "generator": "study-game/scripts/generate-engine-avatar-assets.mjs",
+    "license": "RadioTEDU project-owned original procedural artwork",
+    "thirdPartyArtwork": false,
+    "visualReference": "study-game/art/avatar-reference/radiotedu-turnaround.png"
+  },
+  "frame": {
+    "width": 64,
+    "height": 96
+  },
+  "directions": [
+    "n",
+    "ne",
+    "e",
+    "se",
+    "s",
+    "sw",
+    "w",
+    "nw"
+  ],
+  "layers": [
+    "body",
+    "skin",
+    "hair",
+    "top",
+    "bottom",
+    "shoes",
+    "hat"
+  ],
+  "actionFrames": {
+    "idle": 4,
+    "walk": 4,
+    "sit": 4,
+    "stand": 3
+  },
+  "sheets": {
+    "body": {
+      "idle": "body-idle.png",
+      "walk": "body-walk.png",
+      "sit": "body-sit.png",
+      "stand": "body-stand.png"
+    },
+    "skin": {
+      "idle": "skin-idle.png",
+      "walk": "skin-walk.png",
+      "sit": "skin-sit.png",
+      "stand": "skin-stand.png"
+    },
+    "hair": {
+      "idle": "hair-idle.png",
+      "walk": "hair-walk.png",
+      "sit": "hair-sit.png",
+      "stand": "hair-stand.png"
+    },
+    "top": {
+      "idle": "top-idle.png",
+      "walk": "top-walk.png",
+      "sit": "top-sit.png",
+      "stand": "top-stand.png"
+    },
+    "bottom": {
+      "idle": "bottom-idle.png",
+      "walk": "bottom-walk.png",
+      "sit": "bottom-sit.png",
+      "stand": "bottom-stand.png"
+    },
+    "shoes": {
+      "idle": "shoes-idle.png",
+      "walk": "shoes-walk.png",
+      "sit": "shoes-sit.png",
+      "stand": "shoes-stand.png"
+    },
+    "hat": {
+      "idle": "hat-idle.png",
+      "walk": "hat-walk.png",
+      "sit": "hat-sit.png",
+      "stand": "hat-stand.png"
+    }
+  },
+  "sha256": {
+    "body": {
+      "idle": "527157e4695bcc475a5902b2990e9176009c88daf2e760d8dd5a23107d864aaa",
+      "walk": "881300c68d39f2cb934fa8b9a3ce323625cb76714d6bbc51904a2ff43e8ee638",
+      "sit": "572fbb3f5b7268add833cbb79d3c7f33b1c6b8e0b02e53ff329ad1d7a81208e6",
+      "stand": "f8257505e7101a0ca42296fe00daff2ec168d8f6d88300ec72a85b942c6ddc10"
+    },
+    "skin": {
+      "idle": "dc6d09424b40833a2705017fd7df5a4140b3ee632cb961674ea24232d2ad53eb",
+      "walk": "3a8b0231080199443083af2cb551c6fc5a0b17ae8c1a354f54bf75984149f2ad",
+      "sit": "46e5fc0876bab29126cf99a5a98c06e6d944411ee56b7ea70e0b82c95c5ff861",
+      "stand": "33b7f7e710e68010396dcab0ec50963f3b75073eec5f7aa5b1a1a0d5d8f1a30b"
+    },
+    "hair": {
+      "idle": "a7a791d3046207f255be3d02a299326c2059d7f473f11bb454ea8fcc8923e05a",
+      "walk": "59d230e6939a931fb09a77dfc6c77508badfde797b40d71a2d84b385155462a7",
+      "sit": "491ad0bbfadbea6c6f40ff437a4e31b99c55f7ebfb3c22a323d57397be0acb67",
+      "stand": "26da097b21b6a3293ee510975df8f1ccab52661294e6c980026c0e9b509c9cbb"
+    },
+    "top": {
+      "idle": "79a3dba7ca150caba0ce1fabae792270ab3de31b609899d34d968cb2d63e7026",
+      "walk": "251e5aa24facd2f24570630ee76030d55b983a50fdb391cd0463f5adb26bda55",
+      "sit": "fa9f5838797665114e013306648ecd8302c6875e467e09b13ec72cda6fa41668",
+      "stand": "3edb2a317f91759b93b1557981df489852fe8d7b73731bdbd85f21e4b416d227"
+    },
+    "bottom": {
+      "idle": "77a1512ab3458dacc953b4196cc5a1900752c9c623217139219423ff424f0e76",
+      "walk": "5198904b42587ee743f5b710e5d0cb1866ae24a367f510052137998b7e23fb18",
+      "sit": "4172cfb47d914658bd9e1704a1584e9ebd025ccc753b7bd33a05ebefae3c0e85",
+      "stand": "4a4f391803e01de62c82b61a10d6bf3ea978b0409ea770b32f5f9507ca839eae"
+    },
+    "shoes": {
+      "idle": "0d0de1ea9ee2dd5943300f4cba492f16b68c7e212832fbb5756b05d7d63338c1",
+      "walk": "edefb174d14e77e7df494142d8df8420045d39339ff4e34e6718be825a2f27e5",
+      "sit": "c1b137ad11fb79c8cae037d7e70b4b366b6ec6b209fc5f0bba7db456f76d224f",
+      "stand": "46b0311216979ec641bcc68db2f23793cf2f05cfe85e2d1a88adcf19bf7213ee"
+    },
+    "hat": {
+      "idle": "bbefe4ffe931deaed5debcfbe62215377bd63ccb0c3526f26265d0865dd4d0a1",
+      "walk": "5f5714b643f2bf29222f3a947984efeb9d59036f443c5f18352f6ffb0aa32d11",
+      "sit": "f599c5126c8590225f47fcb4ebfda4365b069cc688c22084e7db9a6e5b128723",
+      "stand": "7491e7203f5769c0073565a9f6eb00655b04211d92a50ee7434edc2d7a2e516f"
+    }
+  },
+  "wearables": {
+    "top": {
+      "radio-hoodie": {
+        "idle": "top-radio-hoodie-idle.png",
+        "walk": "top-radio-hoodie-walk.png",
+        "sit": "top-radio-hoodie-sit.png",
+        "stand": "top-radio-hoodie-stand.png"
+      },
+      "radiotedu-tee": {
+        "idle": "top-radiotedu-tee-idle.png",
+        "walk": "top-radiotedu-tee-walk.png",
+        "sit": "top-radiotedu-tee-sit.png",
+        "stand": "top-radiotedu-tee-stand.png"
+      },
+      "varsity-jacket": {
+        "idle": "top-varsity-jacket-idle.png",
+        "walk": "top-varsity-jacket-walk.png",
+        "sit": "top-varsity-jacket-sit.png",
+        "stand": "top-varsity-jacket-stand.png"
+      }
+    },
+    "bottom": {
+      "jeans": {
+        "idle": "bottom-jeans-idle.png",
+        "walk": "bottom-jeans-walk.png",
+        "sit": "bottom-jeans-sit.png",
+        "stand": "bottom-jeans-stand.png"
+      },
+      "black-cargos": {
+        "idle": "bottom-black-cargos-idle.png",
+        "walk": "bottom-black-cargos-walk.png",
+        "sit": "bottom-black-cargos-sit.png",
+        "stand": "bottom-black-cargos-stand.png"
+      }
+    },
+    "shoes": {
+      "sneakers": {
+        "idle": "shoes-sneakers-idle.png",
+        "walk": "shoes-sneakers-walk.png",
+        "sit": "shoes-sneakers-sit.png",
+        "stand": "shoes-sneakers-stand.png"
+      },
+      "boots": {
+        "idle": "shoes-boots-idle.png",
+        "walk": "shoes-boots-walk.png",
+        "sit": "shoes-boots-sit.png",
+        "stand": "shoes-boots-stand.png"
+      }
+    },
+    "hat": {
+      "bucket-hat": {
+        "idle": "hat-bucket-hat-idle.png",
+        "walk": "hat-bucket-hat-walk.png",
+        "sit": "hat-bucket-hat-sit.png",
+        "stand": "hat-bucket-hat-stand.png"
+      },
+      "beanie": {
+        "idle": "hat-beanie-idle.png",
+        "walk": "hat-beanie-walk.png",
+        "sit": "hat-beanie-sit.png",
+        "stand": "hat-beanie-stand.png"
+      }
+    }
+  },
+  "wearableSha256": {
+    "top": {
+      "radio-hoodie": {
+        "idle": "79a3dba7ca150caba0ce1fabae792270ab3de31b609899d34d968cb2d63e7026",
+        "walk": "251e5aa24facd2f24570630ee76030d55b983a50fdb391cd0463f5adb26bda55",
+        "sit": "fa9f5838797665114e013306648ecd8302c6875e467e09b13ec72cda6fa41668",
+        "stand": "3edb2a317f91759b93b1557981df489852fe8d7b73731bdbd85f21e4b416d227"
+      },
+      "radiotedu-tee": {
+        "idle": "1fa9cace10a7a07d5279eb5c65247f7c47679ebd7eb85bda34aee15770af0798",
+        "walk": "643902f1c59471524a021d6e3431f6dfe5ed4138ee829e20fe38b0772b0a27f3",
+        "sit": "a81db647d509e077e72ae98293088e0a5d42fa6617c645684dcf9802efa51311",
+        "stand": "f33d0f1a4c11b9b83405c9b4ae54f53a7d65cdd01b2ab9b5a5e6d4c0c830790e"
+      },
+      "varsity-jacket": {
+        "idle": "52fb76b1ed6dde616aab4645399a2a56cedab66a516b2d9b34c530b06edc2d2d",
+        "walk": "df9a3d5302b7a5943d5585bd4c032950d1565df06c2f061dc0b4fb70f8209cfc",
+        "sit": "e951e9e6ebfcfe9758f6328349cca8b7177bde906f7b5688925ad8356e1f99f3",
+        "stand": "07c5c69940dd293407e01b9f31a48aff701a0b788121ea643ab654d70085fac6"
+      }
+    },
+    "bottom": {
+      "jeans": {
+        "idle": "77a1512ab3458dacc953b4196cc5a1900752c9c623217139219423ff424f0e76",
+        "walk": "5198904b42587ee743f5b710e5d0cb1866ae24a367f510052137998b7e23fb18",
+        "sit": "4172cfb47d914658bd9e1704a1584e9ebd025ccc753b7bd33a05ebefae3c0e85",
+        "stand": "4a4f391803e01de62c82b61a10d6bf3ea978b0409ea770b32f5f9507ca839eae"
+      },
+      "black-cargos": {
+        "idle": "ec58ec590bcf94747ede97adc5bee4c1c9663d54c001a3746f3289d2d98fd1ef",
+        "walk": "31a8a658995f716c68f77fe79f9662004921937be1be49d911974290a6402111",
+        "sit": "e84a171213f98480ad8d3c44e3f4917876ffadd97e4d7dafc6d15c3ad74cb43d",
+        "stand": "29e3cb823720fd6cbe0bb663b18981e74a4ac97d8776821aac5f0d38d854efbd"
+      }
+    },
+    "shoes": {
+      "sneakers": {
+        "idle": "0d0de1ea9ee2dd5943300f4cba492f16b68c7e212832fbb5756b05d7d63338c1",
+        "walk": "edefb174d14e77e7df494142d8df8420045d39339ff4e34e6718be825a2f27e5",
+        "sit": "c1b137ad11fb79c8cae037d7e70b4b366b6ec6b209fc5f0bba7db456f76d224f",
+        "stand": "46b0311216979ec641bcc68db2f23793cf2f05cfe85e2d1a88adcf19bf7213ee"
+      },
+      "boots": {
+        "idle": "d651420da6e2d156fe8951d3e0f5fb45912d306f833634da90d3ca619820f93b",
+        "walk": "5000e955657a5bda95fb78c4b593b768ed7b944292b052712c8e2f241d3a19ae",
+        "sit": "9488ddd3e64f8f479cf59d2b1ae374c8fb4555bf6a5f3d3698e574d039490a94",
+        "stand": "76acc7a1c27b933dbe64341b50a0bf424d164f58321a11110c42a74e9c7c8a0f"
+      }
+    },
+    "hat": {
+      "bucket-hat": {
+        "idle": "bbefe4ffe931deaed5debcfbe62215377bd63ccb0c3526f26265d0865dd4d0a1",
+        "walk": "5f5714b643f2bf29222f3a947984efeb9d59036f443c5f18352f6ffb0aa32d11",
+        "sit": "f599c5126c8590225f47fcb4ebfda4365b069cc688c22084e7db9a6e5b128723",
+        "stand": "7491e7203f5769c0073565a9f6eb00655b04211d92a50ee7434edc2d7a2e516f"
+      },
+      "beanie": {
+        "idle": "6baff3f23bb81a1d6fe12612f6f7038d506d6f18d1a5143f26235ff978b86354",
+        "walk": "6f9971fda8d3eb6c77e170f10e13dc620032d0df6fccad6c28bd8f05f6f9e5a9",
+        "sit": "dcc83c8fa248bcb9e04fe712882dd418cabf469a770195d30b4325457ee440df",
+        "stand": "5a6eec734d122b5ae7d5557268da51f39e8de318d5c492c7bcf52805de58d76d"
+      }
+    }
+  },
+  "canonical": {
+    "idle": "canonical-idle.png",
+    "walk": "canonical-walk.png",
+    "sit": "canonical-sit.png",
+    "stand": "canonical-stand.png"
+  },
+  "canonicalSha256": {
+    "idle": "61e107a2dafa73fa9e56331b56aa613b50b1087a1a5c5b79c7946f2a001ae308",
+    "walk": "262655a026a512e4c55e307e8d7e49f13b3b3bc65f626be5730363f54d80a2ac",
+    "sit": "d0b10046ff846c4d55be515c7330b2ce1c9c9b4acd143aa5bfd54fc205ca567e",
+    "stand": "d6dd3f5e1f681a79e5900aa6fc81e5185aa21bd2653fc464cd794e62b4b9dd80"
+  }
+}

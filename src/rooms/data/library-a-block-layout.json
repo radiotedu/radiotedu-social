@@ -1,0 +1,363 @@
+{
+  "schemaVersion": 1,
+  "image": {
+    "width": 1715,
+    "height": 917,
+    "sha256": "998425b69d00191685e16e17ce05e20921b0b8ea70b378649f086f338363f797"
+  },
+  "nodes": [
+    { "id": "library-entry-r2", "point": [430, 710, 0] },
+    { "id": "library-southwest-r2", "point": [560, 680, 0] },
+    { "id": "library-south-r2", "point": [820, 800, 0] },
+    { "id": "library-southeast-r2", "point": [1080, 720, 0] },
+    { "id": "library-east-r2", "point": [1510, 575, 0] },
+    { "id": "library-east-center-r2", "point": [1230, 590, 0] },
+    { "id": "library-center-right-r2", "point": [1010, 540, 0] },
+    { "id": "library-center-left-r2", "point": [590, 540, 0] },
+    { "id": "library-center-back-r2", "point": [750, 480, 0] },
+    { "id": "library-top-gap-r2", "point": [780, 360, 0] },
+
+    { "id": "approach-front-left", "point": [692, 284, 0] },
+    { "id": "approach-front-desk", "point": [780, 362, 0] },
+    { "id": "approach-front-right", "point": [690, 370, 0] },
+    { "id": "approach-lamp-left", "point": [780, 372, 0] },
+
+    { "id": "approach-lamp-desk", "point": [310, 505, 0] },
+    { "id": "approach-lamp-right", "point": [520, 500, 0] },
+    { "id": "approach-middle-left", "point": [318, 590, 0] },
+    { "id": "approach-middle-row", "point": [515, 593, 0] },
+
+    { "id": "approach-middle-right", "point": [1025, 430, 0] },
+    { "id": "approach-lower-left", "point": [1235, 425, 0] },
+    { "id": "approach-lower-row", "point": [1030, 492, 0] },
+    { "id": "approach-lower-right", "point": [1223, 498, 0] },
+
+    { "id": "approach-upper-back-left", "point": [1265, 520, 0] },
+    { "id": "approach-upper-back-mid", "point": [1490, 520, 0] },
+    { "id": "approach-upper-back-right", "point": [1270, 592, 0] },
+    { "id": "approach-upper-near-left", "point": [1468, 597, 0] },
+
+    { "id": "approach-upper-near-mid", "point": [700, 645, 0] },
+    { "id": "approach-upper-near-right", "point": [918, 641, 0] },
+    { "id": "approach-middle-back-left", "point": [710, 720, 0] },
+    { "id": "approach-middle-back-mid-left", "point": [905, 720, 0] }
+  ],
+  "edges": [
+    { "from": "library-entry-r2", "to": "library-southwest-r2" },
+    { "from": "library-southwest-r2", "to": "library-south-r2" },
+    { "from": "library-south-r2", "to": "library-southeast-r2" },
+    { "from": "library-southeast-r2", "to": "library-east-center-r2" },
+    { "from": "library-east-center-r2", "to": "library-east-r2" },
+    { "from": "library-southwest-r2", "to": "library-center-left-r2" },
+    { "from": "library-center-left-r2", "to": "library-center-back-r2" },
+    { "from": "library-center-back-r2", "to": "library-top-gap-r2" },
+    { "from": "library-center-back-r2", "to": "library-center-right-r2" },
+    { "from": "library-center-right-r2", "to": "library-east-center-r2" },
+
+    { "from": "library-top-gap-r2", "to": "approach-front-left" },
+    { "from": "library-top-gap-r2", "to": "approach-front-desk" },
+    { "from": "library-top-gap-r2", "to": "approach-front-right" },
+    { "from": "library-top-gap-r2", "to": "approach-lamp-left" },
+
+    { "from": "library-center-left-r2", "to": "approach-lamp-desk" },
+    { "from": "library-center-left-r2", "to": "approach-lamp-right" },
+    { "from": "library-center-left-r2", "to": "approach-middle-left" },
+    { "from": "library-center-left-r2", "to": "approach-middle-row" },
+
+    { "from": "library-center-right-r2", "to": "approach-middle-right" },
+    { "from": "library-center-right-r2", "to": "approach-lower-left" },
+    { "from": "library-center-right-r2", "to": "approach-lower-row" },
+    { "from": "library-center-right-r2", "to": "approach-lower-right" },
+
+    { "from": "library-east-center-r2", "to": "approach-upper-back-left" },
+    { "from": "library-east-r2", "to": "approach-upper-back-mid" },
+    { "from": "library-east-center-r2", "to": "approach-upper-back-right" },
+    { "from": "library-east-r2", "to": "approach-upper-near-left" },
+
+    { "from": "library-south-r2", "to": "approach-upper-near-mid" },
+    { "from": "library-southeast-r2", "to": "approach-upper-near-right" },
+    { "from": "library-south-r2", "to": "approach-middle-back-left" },
+    { "from": "library-southeast-r2", "to": "approach-middle-back-mid-left" }
+  ],
+  "seats": [
+    {
+      "id": "front-left",
+      "label": "Round table 1 · back left",
+      "approachNodeId": "approach-front-left",
+      "sit": [742, 300, 0],
+      "facing": "se",
+      "device": [770, 268],
+      "hitArea": [[709, 204], [754, 205], [764, 252], [742, 270], [716, 252]],
+      "foregroundMask": [[700, 270], [784, 270], [784, 317], [700, 317]],
+      "occlusion": [700, 270, 784, 317]
+    },
+    {
+      "id": "front-desk",
+      "label": "Round table 1 · back right",
+      "approachNodeId": "approach-front-desk",
+      "sit": [826, 318, 0],
+      "facing": "sw",
+      "device": [816, 270],
+      "hitArea": [[823, 202], [867, 215], [873, 256], [846, 275], [821, 253]],
+      "foregroundMask": [[784, 288], [868, 288], [868, 335], [784, 335]],
+      "occlusion": [784, 288, 868, 335]
+    },
+    {
+      "id": "front-right",
+      "label": "Round table 1 · front left",
+      "approachNodeId": "approach-front-right",
+      "sit": [746, 344, 0],
+      "facing": "ne",
+      "device": [770, 280],
+      "hitArea": [[704, 278], [739, 269], [765, 303], [746, 332], [713, 319]],
+      "foregroundMask": [[708, 306], [782, 306], [782, 356], [708, 356]],
+      "occlusion": null
+    },
+    {
+      "id": "lamp-left",
+      "label": "Round table 1 · front right",
+      "approachNodeId": "approach-lamp-left",
+      "sit": [836, 348, 0],
+      "facing": "nw",
+      "device": [812, 282],
+      "hitArea": [[839, 274], [872, 280], [869, 321], [838, 340], [813, 312]],
+      "foregroundMask": [[800, 308], [874, 308], [874, 360], [800, 360]],
+      "occlusion": null
+    },
+
+    {
+      "id": "lamp-desk",
+      "label": "Round table 2 · back left",
+      "approachNodeId": "approach-lamp-desk",
+      "sit": [365, 532, 0],
+      "facing": "se",
+      "device": [395, 480],
+      "hitArea": [[334, 431], [377, 431], [385, 479], [362, 499], [340, 482]],
+      "foregroundMask": [[323, 493], [407, 493], [407, 549], [323, 549]],
+      "occlusion": [323, 493, 407, 549]
+    },
+    {
+      "id": "lamp-right",
+      "label": "Round table 2 · back right",
+      "approachNodeId": "approach-lamp-right",
+      "sit": [467, 533, 0],
+      "facing": "sw",
+      "device": [435, 482],
+      "hitArea": [[446, 426], [491, 435], [492, 477], [468, 499], [444, 478]],
+      "foregroundMask": [[425, 494], [509, 494], [509, 550], [425, 550]],
+      "occlusion": [425, 494, 509, 550]
+    },
+    {
+      "id": "middle-left",
+      "label": "Round table 2 · front left",
+      "approachNodeId": "approach-middle-left",
+      "sit": [374, 564, 0],
+      "facing": "ne",
+      "device": [395, 490],
+      "hitArea": [[333, 488], [367, 485], [397, 522], [376, 553], [340, 537]],
+      "foregroundMask": [[336, 529], [411, 529], [411, 578], [336, 578]],
+      "occlusion": null
+    },
+    {
+      "id": "middle-row",
+      "label": "Round table 2 · front right",
+      "approachNodeId": "approach-middle-row",
+      "sit": [458, 568, 0],
+      "facing": "nw",
+      "device": [435, 492],
+      "hitArea": [[451, 489], [489, 501], [487, 552], [458, 569], [433, 538]],
+      "foregroundMask": [[421, 532], [495, 532], [495, 581], [421, 581]],
+      "occlusion": null
+    },
+
+    {
+      "id": "middle-right",
+      "label": "Round table 3 · back left",
+      "approachNodeId": "approach-middle-right",
+      "sit": [1081, 431, 0],
+      "facing": "se",
+      "device": [1118, 386],
+      "hitArea": [[1043, 331], [1088, 330], [1103, 382], [1081, 407], [1051, 388]],
+      "foregroundMask": [[1039, 393], [1123, 393], [1123, 448], [1039, 448]],
+      "occlusion": [1039, 393, 1123, 448]
+    },
+    {
+      "id": "lower-left",
+      "label": "Round table 3 · back right",
+      "approachNodeId": "approach-lower-left",
+      "sit": [1182, 435, 0],
+      "facing": "sw",
+      "device": [1158, 386],
+      "hitArea": [[1163, 330], [1207, 342], [1211, 390], [1182, 415], [1157, 386]],
+      "foregroundMask": [[1140, 397], [1224, 397], [1224, 452], [1140, 452]],
+      "occlusion": [1140, 397, 1224, 452]
+    },
+    {
+      "id": "lower-row",
+      "label": "Round table 3 · front left",
+      "approachNodeId": "approach-lower-row",
+      "sit": [1083, 459, 0],
+      "facing": "ne",
+      "device": [1118, 397],
+      "hitArea": [[1044, 398], [1080, 391], [1107, 426], [1083, 455], [1050, 441]],
+      "foregroundMask": [[1045, 428], [1120, 428], [1120, 474], [1045, 474]],
+      "occlusion": null
+    },
+    {
+      "id": "lower-right",
+      "label": "Round table 3 · front right",
+      "approachNodeId": "approach-lower-right",
+      "sit": [1171, 464, 0],
+      "facing": "nw",
+      "device": [1158, 398],
+      "hitArea": [[1163, 397], [1202, 404], [1198, 446], [1172, 461], [1148, 435]],
+      "foregroundMask": [[1134, 431], [1208, 431], [1208, 479], [1134, 479]],
+      "occlusion": null
+    },
+
+    {
+      "id": "upper-back-left",
+      "label": "Round table 4 · back left",
+      "approachNodeId": "approach-upper-back-left",
+      "sit": [1324, 535, 0],
+      "facing": "se",
+      "device": [1354, 486],
+      "hitArea": [[1287, 431], [1332, 430], [1346, 483], [1324, 508], [1294, 488]],
+      "foregroundMask": [[1282, 496], [1366, 496], [1366, 552], [1282, 552]],
+      "occlusion": [1282, 496, 1366, 552]
+    },
+    {
+      "id": "upper-back-mid",
+      "label": "Round table 4 · back right",
+      "approachNodeId": "approach-upper-back-mid",
+      "sit": [1430, 540, 0],
+      "facing": "sw",
+      "device": [1395, 487],
+      "hitArea": [[1407, 428], [1453, 439], [1457, 489], [1430, 515], [1405, 486]],
+      "foregroundMask": [[1388, 501], [1472, 501], [1472, 557], [1388, 557]],
+      "occlusion": [1388, 501, 1472, 557]
+    },
+    {
+      "id": "upper-back-right",
+      "label": "Round table 4 · front left",
+      "approachNodeId": "approach-upper-back-right",
+      "sit": [1325, 566, 0],
+      "facing": "ne",
+      "device": [1354, 497],
+      "hitArea": [[1286, 499], [1322, 490], [1348, 529], [1325, 559], [1292, 545]],
+      "foregroundMask": [[1287, 533], [1362, 533], [1362, 580], [1287, 580]],
+      "occlusion": null
+    },
+    {
+      "id": "upper-near-left",
+      "label": "Round table 4 · front right",
+      "approachNodeId": "approach-upper-near-left",
+      "sit": [1413, 570, 0],
+      "facing": "nw",
+      "device": [1395, 499],
+      "hitArea": [[1407, 500], [1447, 507], [1444, 550], [1413, 568], [1388, 539]],
+      "foregroundMask": [[1376, 536], [1450, 536], [1450, 584], [1376, 584]],
+      "occlusion": null
+    },
+
+    {
+      "id": "upper-near-mid",
+      "label": "Round table 5 · back left",
+      "approachNodeId": "approach-upper-near-mid",
+      "sit": [758, 661, 0],
+      "facing": "se",
+      "device": [787, 607],
+      "hitArea": [[720, 555], [766, 554], [780, 607], [758, 635], [728, 612]],
+      "foregroundMask": [[716, 622], [800, 622], [800, 678], [716, 678]],
+      "occlusion": [716, 622, 800, 678]
+    },
+    {
+      "id": "upper-near-right",
+      "label": "Round table 5 · back right",
+      "approachNodeId": "approach-upper-near-right",
+      "sit": [859, 662, 0],
+      "facing": "sw",
+      "device": [828, 607],
+      "hitArea": [[837, 550], [883, 562], [887, 612], [859, 638], [833, 609]],
+      "foregroundMask": [[817, 623], [901, 623], [901, 679], [817, 679]],
+      "occlusion": [817, 623, 901, 679]
+    },
+    {
+      "id": "middle-back-left",
+      "label": "Round table 5 · front left",
+      "approachNodeId": "approach-middle-back-left",
+      "sit": [765, 689, 0],
+      "facing": "ne",
+      "device": [787, 618],
+      "hitArea": [[722, 622], [758, 613], [786, 652], [765, 683], [731, 668]],
+      "foregroundMask": [[727, 656], [802, 656], [802, 704], [727, 704]],
+      "occlusion": null
+    },
+    {
+      "id": "middle-back-mid-left",
+      "label": "Round table 5 · front right",
+      "approachNodeId": "approach-middle-back-mid-left",
+      "sit": [850, 693, 0],
+      "facing": "nw",
+      "device": [828, 619],
+      "hitArea": [[844, 623], [884, 631], [881, 674], [850, 692], [825, 663]],
+      "foregroundMask": [[813, 659], [887, 659], [887, 707], [813, 707]],
+      "occlusion": null
+    }
+  ],
+  "occluders": [
+    { "id": "library-shelf-left", "type": "shelf", "points": [[474, 309], [622, 280], [659, 306], [659, 416], [508, 459], [474, 432]] },
+    { "id": "library-shelf-right", "type": "shelf", "points": [[804, 338], [950, 299], [999, 327], [999, 428], [841, 462], [804, 443]] },
+    { "id": "library-table-1", "type": "desk", "points": [[739, 230], [800, 213], [850, 238], [858, 267], [798, 300], [740, 281], [720, 254]] },
+    { "id": "library-table-2", "type": "desk", "points": [[365, 448], [416, 437], [462, 455], [470, 486], [420, 509], [366, 494], [350, 470]] },
+    { "id": "library-table-3", "type": "desk", "points": [[1083, 355], [1140, 342], [1190, 363], [1195, 395], [1143, 423], [1085, 407], [1065, 382]] },
+    { "id": "library-table-4", "type": "desk", "points": [[1320, 457], [1378, 442], [1431, 465], [1437, 497], [1378, 523], [1322, 507], [1302, 482]] },
+    { "id": "library-table-5", "type": "desk", "points": [[753, 580], [809, 566], [862, 588], [866, 619], [810, 644], [754, 628], [733, 603]] }
+  ],
+  "navigation": {
+    "layers": [
+      {
+        "z": 0,
+        "walkable": [
+          [[82, 454], [335, 321], [540, 272], [686, 205], [814, 184], [927, 216], [1129, 301], [1162, 299], [1671, 416], [1714, 502], [908, 910], [408, 759], [212, 669], [81, 538]]
+        ]
+      }
+    ],
+    "obstacles": [
+      [[0, 306], [257, 250], [257, 438], [79, 523], [0, 491]],
+      [[257, 248], [337, 228], [400, 266], [400, 444], [336, 462], [257, 427]],
+      [[337, 225], [462, 190], [462, 327], [400, 349], [400, 265], [337, 244]],
+      [[538, 147], [773, 73], [773, 235], [538, 316]],
+      [[773, 26], [891, 69], [891, 236], [819, 270], [773, 235]],
+      [[891, 76], [1129, 150], [1129, 315], [891, 237]],
+      [[1128, 150], [1167, 160], [1167, 334], [1128, 315]],
+      [[1167, 162], [1671, 300], [1671, 490], [1167, 366]],
+      [[1671, 298], [1715, 321], [1715, 503], [1671, 489]],
+      [[474, 309], [622, 280], [659, 306], [659, 416], [508, 459], [474, 432]],
+      [[804, 338], [950, 299], [999, 327], [999, 428], [841, 462], [804, 443]],
+      [[739, 230], [800, 213], [850, 238], [858, 267], [798, 300], [740, 281], [720, 254]],
+      [[365, 448], [416, 437], [462, 455], [470, 486], [420, 509], [366, 494], [350, 470]],
+      [[1083, 355], [1140, 342], [1190, 363], [1195, 395], [1143, 423], [1085, 407], [1065, 382]],
+      [[1320, 457], [1378, 442], [1431, 465], [1437, 497], [1378, 523], [1322, 507], [1302, 482]],
+      [[753, 580], [809, 566], [862, 588], [866, 619], [810, 644], [754, 628], [733, 603]]
+    ],
+    "interactionObstacles": [
+      [[0, 306], [257, 250], [257, 438], [79, 523], [0, 491]],
+      [[257, 248], [337, 228], [400, 266], [400, 444], [336, 462], [257, 427]],
+      [[337, 225], [462, 190], [462, 327], [400, 349], [400, 265], [337, 244]],
+      [[538, 147], [773, 73], [773, 235], [538, 316]],
+      [[773, 26], [891, 69], [891, 236], [819, 270], [773, 235]],
+      [[891, 76], [1129, 150], [1129, 315], [891, 237]],
+      [[1128, 150], [1167, 160], [1167, 334], [1128, 315]],
+      [[1167, 162], [1671, 300], [1671, 490], [1167, 366]],
+      [[1671, 298], [1715, 321], [1715, 503], [1671, 489]],
+      [[474, 309], [622, 280], [659, 306], [659, 416], [508, 459], [474, 432]],
+      [[804, 338], [950, 299], [999, 327], [999, 428], [841, 462], [804, 443]],
+      [[703, 202], [876, 202], [876, 349], [703, 349]],
+      [[331, 426], [494, 426], [494, 569], [331, 569]],
+      [[1043, 330], [1213, 330], [1213, 467], [1043, 467]],
+      [[1285, 428], [1460, 428], [1460, 573], [1285, 573]],
+      [[720, 550], [890, 550], [890, 696], [720, 696]]
+    ]
+  }
+}

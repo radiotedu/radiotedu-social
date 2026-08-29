@@ -1,0 +1,859 @@
+import {
+  StudyAdapterError,
+  type StudyAccount,
+  type StudyAdapter,
+  type StudyChatMessage,
+  type StudyHeartbeatInput,
+  type StudyHomeSnapshot,
+  type StudyLeaderboardEntry,
+  type StudyLeaderboardPeriod,
+  type StudyPresence,
+  type StudyPlayerReportReason,
+  type StudyRoomId,
+  type StudyRoomInstance,
+  type StudySeatReservation,
+  type StudySession,
+  type StudyTimeSummary,
+  type StudyWorldEvent,
+  type SocialArcadeChoice,
+  type SocialArcadeSnapshot,
+} from './StudyAdapter'
+import { getOrCreateStudyClientSessionId, normalizeStudyClientSessionId } from './StudyClientSession'
+
+const STARTER_WEARABLES = Object.freeze(['short-hair', 'radio-hoodie', 'jeans', 'sneakers', 'bucket-hat'])
+const CHAT_LIMIT = 5
+const CHAT_WINDOW_MS = 10_000
+const CHAT_MAX_LENGTH = 180
+const CHAT_UNSAFE_CONTROLS = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g
+const LEGACY_TO_CLIENT_WEARABLE: Readonly<Record<string, string>> = Object.freeze({
+  'default-hair': 'short-hair',
+  'default-top': 'radio-hoodie',
+  'default-bottom': 'jeans',
+  'default-shoes': 'sneakers',
+})
+const CLIENT_TO_LEGACY_WEARABLE: Readonly<Record<string, string>> = Object.freeze(
+  Object.fromEntries(Object.entries(LEGACY_TO_CLIENT_WEARABLE).map(([legacy, client]) => [client, legacy])),
+)
+const EMPTY_SUMMARY: StudyTimeSummary = Object.freeze({ todaySeconds: 0, monthSeconds: 0, totalSeconds: 0 })
+const DEFAULT_REQUEST_TIMEOUT_MS = 12_000
+const DEFAULT_RETRY_DELAYS_MS = Object.freeze([250, 750])
+const ACTIVE_SESSION_MAX_AGE_MS = 6 * 60 * 60 * 1_000
+const ACTIVE_SESSION_STORAGE_PREFIX = 'radiotedu.study.active-session.v1:'
+const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504])
+
+type StudySessionStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
+
+interface StudyRequestOptions {
+  method?: 'GET' | 'POST'
+  body?: Record<string, unknown>
+  keepalive?: boolean
+  retryable?: boolean
+}
+
+interface ApiResponse<T> {
+  success?: boolean
+  data?: T
+  message?: string
+  error?: string
+  code?: string
+}
+
+interface ActiveRemoteSession {
+  id: string
+  nonce: string
+}
+
+class RemoteStudyRequestError extends StudyAdapterError {
+  constructor(readonly status: number, message: string, readonly retryable: boolean, code = 'REMOTE_REQUEST_FAILED') {
+    super(/^[A-Z][A-Z0-9_]{2,63}$/.test(code) ? code : 'REMOTE_REQUEST_FAILED', message)
+  }
+}
+
+export interface RadioTEDUStudyAdapterConfig {
+  apiBase: string
+  accessToken?: string
+  account: StudyAccount
+  globalPoints?: number
+  fetchImpl?: typeof fetch
+  now?: () => number
+  clientSessionId?: string
+  requestTimeoutMs?: number
+  retryDelaysMs?: readonly number[]
+  sleep?: (milliseconds: number) => Promise<void>
+  storage?: StudySessionStorage | null
+}
+
+export class RadioTEDUStudyAdapter implements StudyAdapter {
+  readonly authoritativeInventory = true
+  readonly #apiBase: string
+  readonly #gamificationBase: string
+  readonly #accessToken: string | null
+  readonly #fetch: typeof fetch
+  readonly #now: () => number
+  readonly #requestTimeoutMs: number
+  readonly #retryDelaysMs: readonly number[]
+  readonly #sleep: (milliseconds: number) => Promise<void>
+  readonly #account: StudyAccount
+  readonly #clientSessionId: string
+  readonly #storage: StudySessionStorage | null
+  readonly #activeSessionStorageKey: string
+  readonly #owned = new Set<string>(STARTER_WEARABLES)
+  readonly #equipped = new Set<string>()
+  readonly #equippedBySlot = new Map<string, string>()
+  readonly #presence = new Map<StudyRoomId, readonly StudyPresence[]>()
+  readonly #instances = new Map<StudyRoomId, StudyRoomInstance>()
+  readonly #roomJoins = new Map<StudyRoomId, Promise<StudyRoomInstance>>()
+  readonly #chatTimestamps: number[] = []
+  #globalPoints: number
+  #summary: StudyTimeSummary = EMPTY_SUMMARY
+  #activeSession: ActiveRemoteSession | null = null
+  #activeSeat: StudySeatReservation | null = null
+  #activeRoomId: StudyRoomId | null = null
+
+  constructor(config: RadioTEDUStudyAdapterConfig) {
+    const accessToken = config.accessToken?.trim() ?? ''
+    if (!config.account.authenticated || (!accessToken && !config.fetchImpl)) {
+      throw new StudyAdapterError('AUTH_REQUIRED')
+    }
+    this.#apiBase = config.apiBase.replace(/\/+$/, '')
+    this.#gamificationBase = this.#apiBase.endsWith('/study')
+      ? this.#apiBase.slice(0, -'/study'.length) + '/gamification'
+      : `${this.#apiBase}/gamification`
+    this.#accessToken = accessToken || null
+    this.#fetch = config.fetchImpl ?? globalThis.fetch.bind(globalThis)
+    this.#now = config.now ?? Date.now
+    this.#requestTimeoutMs = positiveInteger(config.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS)
+    this.#retryDelaysMs = Object.freeze((config.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS)
+      .map((delay) => Math.max(0, Math.floor(Number(delay))))
+      .filter(Number.isFinite))
+    this.#sleep = config.sleep ?? ((milliseconds) => new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds)))
+    this.#account = Object.freeze({ ...config.account })
+    this.#storage = config.storage === undefined
+      ? (typeof sessionStorage === 'undefined' ? null : sessionStorage)
+      : config.storage
+    this.#clientSessionId = normalizeStudyClientSessionId(config.clientSessionId)
+      ?? getOrCreateStudyClientSessionId(this.#storage, this.#now)
+    this.#activeSessionStorageKey = `${ACTIVE_SESSION_STORAGE_PREFIX}${encodeURIComponent(this.#account.id)}`
+    this.#activeSession = readPersistedActiveSession(
+      this.#storage,
+      this.#activeSessionStorageKey,
+      this.#now(),
+    )
+    this.#globalPoints = nonNegativeInteger(config.globalPoints)
+  }
+
+  async initialize(): Promise<void> {
+    if (this.#activeSession) await this.finishStudySession().catch(() => undefined)
+    const [profile, summary] = await Promise.all([
+      this.#request<{
+        ownedItemIds?: unknown
+        equipped?: Record<string, unknown>
+        points?: { spendable_points?: unknown }
+      }>('/avatar/me'),
+      this.fetchSummary(),
+    ])
+    if (Array.isArray(profile.ownedItemIds)) {
+      this.#owned.clear()
+      for (const id of profile.ownedItemIds) {
+        if (typeof id === 'string') this.#owned.add(clientWearableId(id))
+      }
+    }
+    this.#equipped.clear()
+    this.#equippedBySlot.clear()
+    for (const [slot, id] of Object.entries(profile.equipped ?? {})) {
+      if (typeof id !== 'string') continue
+      const clientId = clientWearableId(id)
+      this.#equipped.add(clientId)
+      this.#equippedBySlot.set(slot, clientId)
+    }
+    this.#globalPoints = nonNegativeInteger(profile.points?.spendable_points, this.#globalPoints)
+    this.#summary = summary
+  }
+
+  session(): StudySession {
+    return {
+      account: this.#account,
+      points: {
+        global: this.#globalPoints,
+        studyToday: Math.floor(this.#summary.todaySeconds / 60),
+        dailyCap: 25,
+        authoritative: true,
+      },
+      ownedWearableIds: [...this.#owned],
+      equippedWearableIds: [...this.#equipped],
+    }
+  }
+
+  presence(roomId: StudyRoomId): readonly StudyPresence[] {
+    return this.#presence.get(roomId) ?? []
+  }
+
+  roomInstance(roomId: StudyRoomId): StudyRoomInstance | null {
+    return this.#instances.get(roomId) ?? null
+  }
+
+  async enterRoom(roomId: StudyRoomId, nodeId: string, preferredInstanceId?: string | null): Promise<void> {
+    this.releaseSeat()
+    const returningToRoom = this.#activeRoomId !== null && this.#activeRoomId !== roomId
+    const activeInstance = this.#instances.get(roomId)
+    const changingInstance = Boolean(preferredInstanceId && activeInstance?.id !== preferredInstanceId)
+    this.#activeRoomId = roomId
+    if (!returningToRoom && activeInstance && !changingInstance) return
+    await this.#joinRoom(roomId, nodeId, preferredInstanceId ?? activeInstance?.id ?? null)
+  }
+
+  reserveSeat(roomId: StudyRoomId, seatId: string): StudySeatReservation {
+    if (this.#activeSeat) throw new StudyAdapterError('SEAT_ALREADY_RESERVED')
+    if (this.presence(roomId).some((entry) => entry.userId !== this.#account.id && entry.seatId === seatId)) {
+      throw new StudyAdapterError('SEAT_OCCUPIED')
+    }
+    this.#activeSeat = Object.freeze({ roomId, seatId, reservedAt: this.#now() })
+    return this.#activeSeat
+  }
+
+  releaseSeat(): void {
+    this.#activeSeat = null
+  }
+
+  async equipWearable(id: string, slot?: string): Promise<StudySession> {
+    if (!this.#owned.has(id)) throw new StudyAdapterError('WEARABLE_NOT_OWNED', id)
+    if (!slot) throw new StudyAdapterError('WEARABLE_SLOT_REQUIRED', id)
+    await this.#request('/avatar/equip', {
+      method: 'POST', body: { itemId: serverWearableId(id), slot }, retryable: true,
+    })
+    const previous = this.#equippedBySlot.get(slot)
+    if (previous) this.#equipped.delete(previous)
+    this.#equippedBySlot.set(slot, id)
+    this.#equipped.add(id)
+    return this.session()
+  }
+
+  syncGoldBalance(points: number): void {
+    this.#globalPoints = nonNegativeInteger(points, this.#globalPoints)
+  }
+
+  async purchaseWearable(id: string, idempotencyKey: string): Promise<StudySession> {
+    const data = await this.#request<{
+      ownedItemIds?: unknown
+      points?: { spendable_points?: unknown }
+      spendable_points?: unknown
+    }>('/avatar/purchase', {
+      method: 'POST', body: { itemId: serverWearableId(id), idempotencyKey }, retryable: true,
+    })
+    const ownedIds = (Array.isArray(data.ownedItemIds) ? data.ownedItemIds : [])
+      .filter((itemId): itemId is string => typeof itemId === 'string')
+      .map(clientWearableId)
+    const rawPoints = data.points?.spendable_points ?? data.spendable_points
+    const authoritativePoints = typeof rawPoints === 'number' ? rawPoints : Number(rawPoints)
+    if (!ownedIds.includes(id) || !Number.isInteger(authoritativePoints) || authoritativePoints < 0) {
+      throw new StudyAdapterError('INVALID_PURCHASE_RESPONSE', id)
+    }
+    for (const itemId of ownedIds) this.#owned.add(itemId)
+    this.#globalPoints = authoritativePoints
+    return this.session()
+  }
+
+  async startStudySession(roomId: StudyRoomId, clientSessionId: string): Promise<void> {
+    if (this.#activeSession) await this.finishStudySession()
+    const data = await this.#request<{ session?: { id?: unknown }; nonce?: unknown }>('/sessions/start', {
+      method: 'POST', body: { location: roomId, clientSessionId },
+    })
+    if (typeof data.session?.id !== 'string' || typeof data.nonce !== 'string') {
+      throw new StudyAdapterError('INVALID_SESSION_RESPONSE')
+    }
+    this.#activeSession = { id: data.session.id, nonce: data.nonce }
+    this.#persistActiveSession()
+  }
+
+  async heartbeatStudySession(input: StudyHeartbeatInput): Promise<number> {
+    if (!this.#activeSession) throw new StudyAdapterError('SESSION_NOT_ACTIVE')
+    const active = this.#activeSession
+    const data = await this.#request<{ nonce?: unknown; accepted_seconds?: unknown; acceptedSeconds?: unknown }>(
+      `/sessions/${encodeURIComponent(active.id)}/heartbeat`,
+      {
+        method: 'POST',
+        body: {
+          nonce: active.nonce,
+          roomId: input.roomId,
+          nodeId: input.nodeId,
+          seatId: input.seatId,
+          position: input.position,
+          interaction: input.interaction,
+          focused: input.focused,
+          foreground: input.foreground,
+        },
+      },
+    )
+    if (typeof data.nonce !== 'string' || data.nonce === active.nonce) throw new StudyAdapterError('INVALID_HEARTBEAT_RESPONSE')
+    const acceptedSeconds = nonNegativeInteger(data.accepted_seconds ?? data.acceptedSeconds)
+    const eligible = input.interaction === 'seated' && input.focused && input.foreground && Boolean(input.seatId)
+    if (acceptedSeconds > 15 || (!eligible && acceptedSeconds !== 0)) {
+      throw new StudyAdapterError('INVALID_HEARTBEAT_RESPONSE')
+    }
+    this.#activeSession = { id: active.id, nonce: data.nonce }
+    this.#persistActiveSession()
+    return acceptedSeconds
+  }
+
+  async finishStudySession(): Promise<StudyTimeSummary> {
+    if (!this.#activeSession) return this.#summary
+    const active = this.#activeSession
+    this.#activeSession = null
+    try {
+      const data = await this.#request<{
+        spendable_points?: unknown
+        points?: { spendable_points?: unknown }
+      }>(`/sessions/${encodeURIComponent(active.id)}/finish`, {
+        method: 'POST', body: { nonce: active.nonce }, keepalive: true, retryable: true,
+      })
+      this.#globalPoints = nonNegativeInteger(
+        data.points?.spendable_points ?? data.spendable_points,
+        this.#globalPoints,
+      )
+    } catch (error) {
+      if (isTerminalSessionError(error)) {
+        this.#clearPersistedActiveSession()
+        return this.fetchSummary().catch(() => this.#summary)
+      }
+      this.#activeSession = active
+      throw error
+    }
+    this.#clearPersistedActiveSession()
+    try {
+      return await this.fetchSummary()
+    } catch {
+      // Finishing already committed the session and authoritative Gold. A
+      // summary outage must not make the client retry or look stuck.
+      return this.#summary
+    }
+  }
+
+  async fetchSummary(): Promise<StudyTimeSummary> {
+    const data = await this.#request<Partial<StudyTimeSummary>>('/summary')
+    this.#summary = {
+      todaySeconds: nonNegativeInteger(data.todaySeconds),
+      monthSeconds: nonNegativeInteger(data.monthSeconds),
+      totalSeconds: nonNegativeInteger(data.totalSeconds),
+    }
+    return this.#summary
+  }
+
+  async fetchHome(): Promise<StudyHomeSnapshot> {
+    const data = await this.#request<Record<string, unknown>>('/home')
+    return mapHomeSnapshot(data, this.#account.id)
+  }
+
+  async refreshPresence(roomId: StudyRoomId): Promise<readonly StudyPresence[]> {
+    const instance = await this.#ensureRoomJoined(roomId)
+    const data = await this.#request<{ presence?: unknown }>(
+      `/presence?roomId=${encodeURIComponent(roomId)}&instanceId=${encodeURIComponent(instance.id)}`,
+    )
+    const entries = Array.isArray(data.presence) ? data.presence : []
+    const mapped = entries.flatMap((value) => {
+      const row = value as Record<string, unknown>
+      if (
+        typeof row.userId !== 'string' || row.userId === this.#account.id
+        || typeof row.displayName !== 'string' || typeof row.nodeId !== 'string'
+        || row.instanceId !== instance.id
+      ) return []
+      const equipped = row.equipped && typeof row.equipped === 'object' ? Object.values(row.equipped) : []
+      const remotePosition = row.position && typeof row.position === 'object'
+        ? row.position as Record<string, unknown>
+        : null
+      const position = remotePosition
+        && typeof remotePosition.x === 'number' && Number.isFinite(remotePosition.x)
+        && typeof remotePosition.y === 'number' && Number.isFinite(remotePosition.y)
+        ? { x: remotePosition.x, y: remotePosition.y }
+        : undefined
+      return [{
+        userId: row.userId,
+        displayName: row.displayName.slice(0, 80),
+        roomId,
+        nodeId: row.nodeId,
+        position,
+        seatId: typeof row.seatId === 'string' ? row.seatId : null,
+        color: colorForUser(row.userId),
+        equippedWearableIds: equipped
+          .filter((id): id is string => typeof id === 'string')
+          .map(clientWearableId),
+      } satisfies StudyPresence]
+    })
+    this.#presence.set(roomId, mapped)
+    this.#publishRoomInstance(Object.freeze({
+      ...instance,
+      occupancy: Math.min(instance.capacity, mapped.length + 1),
+    }))
+    return mapped
+  }
+
+  async heartbeatPresence(input: Omit<StudyHeartbeatInput, 'interaction' | 'focused' | 'foreground'>): Promise<void> {
+    let instance = await this.#ensureRoomJoined(input.roomId, input.nodeId)
+    const send = () => this.#request('/presence/heartbeat', {
+      method: 'POST' as const,
+      body: {
+        roomId: input.roomId, instanceId: instance.id, clientSessionId: this.#clientSessionId,
+        nodeId: input.nodeId, seatId: input.seatId, position: input.position,
+      },
+    })
+    try {
+      await send()
+    } catch {
+      this.#instances.delete(input.roomId)
+      instance = await this.#joinRoom(input.roomId, input.nodeId)
+      await send()
+    }
+  }
+
+  async refreshChat(roomId: StudyRoomId): Promise<readonly StudyChatMessage[]> {
+    const instance = await this.#ensureRoomJoined(roomId)
+    const data = await this.#request<{ messages?: unknown }>(
+      `/chat?roomId=${encodeURIComponent(roomId)}&instanceId=${encodeURIComponent(instance.id)}`,
+    )
+    return (Array.isArray(data.messages) ? data.messages : []).flatMap(mapRemoteMessage)
+  }
+
+  async sendChat(text: string, roomId: StudyRoomId = 'library'): Promise<StudyChatMessage> {
+    const normalized = text.replace(CHAT_UNSAFE_CONTROLS, ' ').replace(/\s+/g, ' ').trim()
+    if (!normalized) throw new StudyAdapterError('CHAT_EMPTY')
+    if (normalized.length > CHAT_MAX_LENGTH) throw new StudyAdapterError('CHAT_TOO_LONG')
+    const now = this.#now()
+    while (this.#chatTimestamps.length && now - this.#chatTimestamps[0]! >= CHAT_WINDOW_MS) this.#chatTimestamps.shift()
+    if (this.#chatTimestamps.length >= CHAT_LIMIT) throw new StudyAdapterError('CHAT_RATE_LIMITED')
+    this.#chatTimestamps.push(now)
+    const instance = await this.#ensureRoomJoined(roomId)
+    const data = await this.#request<{ message?: unknown }>('/chat', {
+      method: 'POST', body: { roomId, instanceId: instance.id, text: normalized },
+    })
+    const messages = mapRemoteMessage(data.message)
+    if (!messages[0] || messages[0].userId !== this.#account.id || messages[0].text !== normalized) {
+      throw new StudyAdapterError('INVALID_CHAT_RESPONSE')
+    }
+    return messages[0]
+  }
+
+  async reportPlayer(targetUserId: string, roomId: StudyRoomId, reason: StudyPlayerReportReason): Promise<void> {
+    if (!targetUserId || targetUserId === this.#account.id) throw new StudyAdapterError('INVALID_REPORT_TARGET')
+    const instance = await this.#ensureRoomJoined(roomId)
+    await this.#request('/moderation/reports', {
+      method: 'POST',
+      retryable: true,
+      body: {
+        targetUserId,
+        roomId,
+        instanceId: instance.id,
+        reason,
+        idempotencyKey: crypto.randomUUID(),
+      },
+    })
+  }
+
+  async listEvents(): Promise<readonly StudyWorldEvent[]> {
+    const data = await this.#requestFrom<{ events?: unknown }>(this.#gamificationBase, '/events')
+    return (Array.isArray(data.events) ? data.events : []).flatMap((event) => mapWorldEvent(event, this.#now()))
+  }
+
+  async startPoolDive(): Promise<SocialArcadeSnapshot> {
+    const data = await this.#requestFrom<Record<string, unknown>>(
+      this.#gamificationBase,
+      '/social-arcade/pool-dive/start',
+      { method: 'POST', body: {} },
+    )
+    return mapSocialArcadeSnapshot(data)
+  }
+
+  async playPoolDiveRound(
+    sessionId: string,
+    nonce: string,
+    choice: SocialArcadeChoice,
+  ): Promise<SocialArcadeSnapshot> {
+    const data = await this.#requestFrom<Record<string, unknown>>(
+      this.#gamificationBase,
+      `/social-arcade/pool-dive/sessions/${encodeURIComponent(sessionId)}/action`,
+      { method: 'POST', body: { nonce, choice } },
+    )
+    return mapSocialArcadeSnapshot(data)
+  }
+
+  async registerEvent(eventId: string): Promise<StudyWorldEvent> {
+    await this.#requestFrom(this.#gamificationBase, `/events/${encodeURIComponent(eventId)}/register`, {
+      method: 'POST',
+    })
+    const event = (await this.listEvents()).find((candidate) => candidate.id === eventId)
+    if (!event) throw new StudyAdapterError('EVENT_NOT_FOUND')
+    return { ...event, registered: true }
+  }
+
+  async #ensureRoomJoined(roomId: StudyRoomId, nodeId = 'spawn'): Promise<StudyRoomInstance> {
+    const pending = this.#roomJoins.get(roomId)
+    if (pending) return pending
+    const instance = this.#instances.get(roomId)
+    if (instance && this.#activeRoomId === roomId) return instance
+    this.#activeRoomId = roomId
+    return this.#joinRoom(roomId, nodeId)
+  }
+
+  async #joinRoom(
+    roomId: StudyRoomId,
+    nodeId: string,
+    preferredInstanceId = this.#instances.get(roomId)?.id ?? null,
+  ): Promise<StudyRoomInstance> {
+    const pending = this.#roomJoins.get(roomId)
+    if (pending) return pending
+    const joining = this.#request<{ instance?: unknown }>('/instances/join', {
+      method: 'POST',
+      retryable: true,
+      body: {
+        roomId,
+        preferredInstanceId,
+        nodeId,
+        position: { x: 0, y: 0 },
+        clientSessionId: this.#clientSessionId,
+      },
+    }).then((data) => mapRoomInstance(data.instance, roomId))
+    this.#roomJoins.set(roomId, joining)
+    try {
+      const instance = await joining
+      this.#publishRoomInstance(instance)
+      return instance
+    } catch (error) {
+      this.#instances.delete(roomId)
+      throw error
+    } finally {
+      if (this.#roomJoins.get(roomId) === joining) this.#roomJoins.delete(roomId)
+    }
+  }
+
+  #publishRoomInstance(instance: StudyRoomInstance): void {
+    this.#instances.set(instance.roomId, instance)
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('radiotedu:study-instance-changed', { detail: { instance } }))
+    }
+  }
+
+  async #request<T = Record<string, never>>(
+    path: string,
+    options: StudyRequestOptions = {},
+  ): Promise<T> {
+    return this.#requestFrom(this.#apiBase, path, options)
+  }
+
+  async #requestFrom<T = Record<string, never>>(
+    base: string,
+    path: string,
+    options: StudyRequestOptions = {},
+  ): Promise<T> {
+    const method = options.method ?? 'GET'
+    const retryable = method === 'GET' || options.retryable === true
+    const attempts = retryable ? this.#retryDelaysMs.length + 1 : 1
+    let lastError: StudyAdapterError | null = null
+
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const controller = typeof AbortController === 'undefined' ? null : new AbortController()
+      const timeout = controller
+        ? globalThis.setTimeout(() => controller.abort(), this.#requestTimeoutMs)
+        : null
+      try {
+        const response = await this.#fetch(`${base}${path}`, {
+          method,
+          headers: {
+            Accept: 'application/json',
+            ...(this.#accessToken ? { Authorization: `Bearer ${this.#accessToken}` } : {}),
+            ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+          },
+          body: options.body ? JSON.stringify(options.body) : undefined,
+          keepalive: options.keepalive,
+          signal: controller?.signal,
+        })
+        const payload = await response.json().catch(() => null) as ApiResponse<T> | null
+        if (!payload) {
+          throw new RemoteStudyRequestError(response.status, 'The Study service returned an invalid response.', retryable)
+        }
+        if (!response.ok || payload.success === false || payload.data === undefined) {
+          throw new RemoteStudyRequestError(
+            response.status,
+            payload.message ?? payload.error ?? `HTTP ${response.status}`,
+            RETRYABLE_HTTP_STATUSES.has(response.status),
+            payload.code,
+          )
+        }
+        return payload.data
+      } catch (error) {
+        const normalized = normalizeRemoteRequestError(error, controller?.signal.aborted === true)
+        lastError = normalized
+        if (!retryable || attempt >= attempts - 1 || !isRetryableRemoteError(normalized)) throw normalized
+        await this.#sleep(this.#retryDelaysMs[attempt] ?? 0)
+      } finally {
+        if (timeout !== null) globalThis.clearTimeout(timeout)
+      }
+    }
+
+    throw lastError ?? new StudyAdapterError('REMOTE_REQUEST_FAILED')
+  }
+
+  #persistActiveSession(): void {
+    if (!this.#storage || !this.#activeSession) return
+    try {
+      this.#storage.setItem(this.#activeSessionStorageKey, JSON.stringify({
+        ...this.#activeSession,
+        savedAt: this.#now(),
+      }))
+    } catch { /* storage can be unavailable in hardened WebViews */ }
+  }
+
+  #clearPersistedActiveSession(): void {
+    try { this.#storage?.removeItem(this.#activeSessionStorageKey) } catch { /* ignore storage denial */ }
+  }
+}
+
+function positiveInteger(value: unknown, fallback: number) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback
+}
+
+function normalizeRemoteRequestError(error: unknown, timedOut: boolean): StudyAdapterError {
+  if (error instanceof StudyAdapterError) return error
+  const message = error instanceof Error ? error.message : String(error)
+  return new StudyAdapterError(timedOut ? 'REMOTE_TIMEOUT' : 'REMOTE_NETWORK_ERROR', message)
+}
+
+function isRetryableRemoteError(error: StudyAdapterError): boolean {
+  return error.code === 'REMOTE_TIMEOUT'
+    || error.code === 'REMOTE_NETWORK_ERROR'
+    || (error instanceof RemoteStudyRequestError && error.retryable)
+}
+
+function isTerminalSessionError(error: unknown): boolean {
+  return error instanceof RemoteStudyRequestError
+    && error.status >= 400
+    && error.status < 500
+    && ![401, 403, 408, 425, 429].includes(error.status)
+}
+
+function readPersistedActiveSession(
+  storage: StudySessionStorage | null,
+  key: string,
+  now: number,
+): ActiveRemoteSession | null {
+  if (!storage) return null
+  try {
+    const value = JSON.parse(storage.getItem(key) ?? 'null') as Record<string, unknown> | null
+    const savedAt = Number(value?.savedAt)
+    const valid = value
+      && typeof value.id === 'string' && value.id.length > 0 && value.id.length <= 200
+      && typeof value.nonce === 'string' && value.nonce.length > 0 && value.nonce.length <= 500
+      && Number.isFinite(savedAt) && savedAt <= now + 60_000 && now - savedAt <= ACTIVE_SESSION_MAX_AGE_MS
+    if (valid) return { id: value.id as string, nonce: value.nonce as string }
+    storage.removeItem(key)
+  } catch {
+    try { storage.removeItem(key) } catch { /* ignore storage denial */ }
+  }
+  return null
+}
+
+function nonNegativeInteger(value: unknown, fallback = 0) {
+  const parsed = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : fallback
+}
+
+const STUDY_ROOM_IDS: readonly StudyRoomId[] = Object.freeze([
+  'library', 'chim-alan', 'grass-amphitheatre', 'sports-center', 'auditorium', 'learning-lab',
+])
+const LEADERBOARD_PERIODS: readonly StudyLeaderboardPeriod[] = Object.freeze(['week', 'month', 'all'])
+
+function mapHomeSnapshot(value: unknown, currentUserId: string): StudyHomeSnapshot {
+  const row = value as Record<string, unknown> | null
+  if (!row || !Array.isArray(row.rooms) || !row.leaderboard || typeof row.leaderboard !== 'object') {
+    throw new StudyAdapterError('INVALID_HOME_RESPONSE')
+  }
+  const rooms = row.rooms.flatMap((candidate) => {
+    const room = candidate as Record<string, unknown> | null
+    if (!room || !STUDY_ROOM_IDS.includes(room.roomId as StudyRoomId)) return []
+    const capacity = nonNegativeInteger(room.capacity)
+    const occupancy = nonNegativeInteger(room.occupancy)
+    const instanceCount = nonNegativeInteger(room.instanceCount)
+    if (capacity < 1 || instanceCount < 1 || occupancy > capacity * instanceCount) return []
+    return [{ roomId: room.roomId as StudyRoomId, occupancy, capacity, instanceCount }]
+  })
+  if (rooms.length !== STUDY_ROOM_IDS.length || new Set(rooms.map((room) => room.roomId)).size !== STUDY_ROOM_IDS.length) {
+    throw new StudyAdapterError('INVALID_HOME_RESPONSE')
+  }
+  const leaderboardValue = row.leaderboard as Record<string, unknown>
+  const leaderboard = Object.fromEntries(LEADERBOARD_PERIODS.map((period) => [
+    period,
+    mapLeaderboard(leaderboardValue[period], currentUserId),
+  ])) as Record<StudyLeaderboardPeriod, readonly StudyLeaderboardEntry[]>
+  const summaryValue = row.summary as Partial<StudyTimeSummary> | null
+  const generatedAt = typeof row.generatedAt === 'string' && Number.isFinite(Date.parse(row.generatedAt))
+    ? row.generatedAt
+    : null
+  return Object.freeze({
+    activePlayers: nonNegativeInteger(row.activePlayers),
+    summary: Object.freeze({
+      todaySeconds: nonNegativeInteger(summaryValue?.todaySeconds),
+      monthSeconds: nonNegativeInteger(summaryValue?.monthSeconds),
+      totalSeconds: nonNegativeInteger(summaryValue?.totalSeconds),
+    }),
+    rooms: Object.freeze(rooms),
+    leaderboard: Object.freeze(leaderboard),
+    generatedAt,
+  })
+}
+
+function mapLeaderboard(value: unknown, currentUserId: string): readonly StudyLeaderboardEntry[] {
+  if (!Array.isArray(value)) throw new StudyAdapterError('INVALID_HOME_RESPONSE')
+  const seenUsers = new Set<string>()
+  return Object.freeze(value.slice(0, 100).flatMap((candidate) => {
+    const row = candidate as Record<string, unknown> | null
+    if (!row || typeof row.userId !== 'string' || typeof row.displayName !== 'string') return []
+    const userId = row.userId.trim()
+    const displayName = row.displayName.replace(CHAT_UNSAFE_CONTROLS, ' ').replace(/\s+/g, ' ').trim()
+    const rank = nonNegativeInteger(row.rank)
+    if (!userId || userId.length > 160 || !displayName || displayName.length > 80 || rank < 1 || seenUsers.has(userId)) return []
+    seenUsers.add(userId)
+    return [Object.freeze({
+      rank,
+      userId,
+      displayName,
+      studySeconds: nonNegativeInteger(row.studySeconds),
+      streakDays: Math.min(36_500, nonNegativeInteger(row.streakDays)),
+      isCurrentUser: userId === currentUserId,
+    })]
+  }).sort((left, right) => left.rank - right.rank))
+}
+
+function clientWearableId(id: string) {
+  return LEGACY_TO_CLIENT_WEARABLE[id] ?? id
+}
+
+function serverWearableId(id: string) {
+  return CLIENT_TO_LEGACY_WEARABLE[id] ?? id
+}
+
+function mapWorldEvent(value: unknown, now: number): StudyWorldEvent[] {
+  const row = value as Record<string, unknown> | null
+  if (!row || typeof row.id !== 'string' || typeof row.title !== 'string') return []
+  const startsAt = typeof row.starts_at === 'string' ? row.starts_at : null
+  const endsAt = typeof row.ends_at === 'string' ? row.ends_at : null
+  const starts = startsAt ? Date.parse(startsAt) : Number.NaN
+  const ends = endsAt ? Date.parse(endsAt) : Number.NaN
+  const metadata = row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
+    ? row.metadata as Record<string, unknown>
+    : {}
+  const status: StudyWorldEvent['status'] = metadata.always_open === true
+    ? 'active'
+    : Number.isFinite(ends) && ends < now
+    ? 'completed'
+    : Number.isFinite(starts) && starts <= now
+      ? 'active'
+      : 'upcoming'
+  return [Object.freeze({
+    id: row.id,
+    title: row.title.slice(0, 100),
+    description: typeof row.description === 'string' ? row.description.slice(0, 320) : '',
+    location: typeof row.location === 'string' && row.location.trim() ? row.location.slice(0, 120) : 'TEDU Campus',
+    startsAt,
+    endsAt,
+    rewardGold: nonNegativeInteger(row.check_in_points),
+    registered: row.registered === true,
+    status,
+  })]
+}
+
+function mapSocialArcadeSnapshot(value: unknown): SocialArcadeSnapshot {
+  const row = value as Record<string, unknown> | null
+  const session = row?.session as Record<string, unknown> | null
+  if (!row || !session || typeof session.id !== 'string') {
+    throw new StudyAdapterError('INVALID_SOCIAL_ARCADE_RESPONSE')
+  }
+  const status = session.status
+  const final = session.final === true
+  const round = nonNegativeInteger(session.round)
+  const totalRounds = nonNegativeInteger(session.totalRounds)
+  const score = nonNegativeInteger(session.score)
+  const prompt = session.prompt
+  const nonce = session.nonce
+  if (
+    !['active', 'completed'].includes(String(status))
+    || totalRounds !== 8 || round < 1 || round > totalRounds || score > 800
+    || (final && (status !== 'completed' || prompt !== null || nonce !== null))
+    || (!final && (
+      status !== 'active'
+      || !['left', 'center', 'right'].includes(String(prompt))
+      || typeof nonce !== 'string' || !/^[A-Za-z0-9_-]{32,180}$/.test(nonce)
+    ))
+  ) throw new StudyAdapterError('INVALID_SOCIAL_ARCADE_RESPONSE')
+
+  const resultRow = row.result as Record<string, unknown> | null
+  const result = resultRow ? {
+    correct: resultRow.correct === true,
+    validTiming: resultRow.validTiming === true,
+    roundScore: nonNegativeInteger(resultRow.roundScore),
+    elapsedMs: nonNegativeInteger(resultRow.elapsedMs),
+    completedRound: nonNegativeInteger(resultRow.completedRound),
+  } : undefined
+  if (result && (result.roundScore > 100 || result.completedRound < 1 || result.completedRound > totalRounds)) {
+    throw new StudyAdapterError('INVALID_SOCIAL_ARCADE_RESPONSE')
+  }
+  return Object.freeze({
+    session: Object.freeze({
+      id: session.id,
+      status: status as 'active' | 'completed',
+      round,
+      totalRounds,
+      score,
+      prompt: final ? null : prompt as SocialArcadeChoice,
+      nonce: final ? null : nonce as string,
+      promptExpiresAt: typeof session.promptExpiresAt === 'string' ? session.promptExpiresAt : null,
+      expiresAt: typeof session.expiresAt === 'string' ? session.expiresAt : null,
+      final,
+    }),
+    ...(result ? { result: Object.freeze(result) } : {}),
+    ...(row.pointsAwarded !== undefined ? { pointsAwarded: nonNegativeInteger(row.pointsAwarded) } : {}),
+    ...(row.spendablePoints !== undefined ? { spendablePoints: nonNegativeInteger(row.spendablePoints) } : {}),
+    ...(row.verification === 'server-authoritative' ? { verification: 'server-authoritative' as const } : {}),
+  })
+}
+
+function mapRoomInstance(value: unknown, expectedRoomId: StudyRoomId): StudyRoomInstance {
+  const row = value as Record<string, unknown> | null
+  const number = nonNegativeInteger(row?.number)
+  const occupancy = nonNegativeInteger(row?.occupancy)
+  const capacity = nonNegativeInteger(row?.capacity)
+  if (
+    !row || row.roomId !== expectedRoomId || typeof row.id !== 'string'
+    || row.id !== `${expectedRoomId}-${number}` || number < 1 || capacity < 1 || occupancy > capacity
+  ) {
+    throw new StudyAdapterError('INVALID_ROOM_INSTANCE_RESPONSE')
+  }
+  return Object.freeze({
+    id: row.id,
+    roomId: expectedRoomId,
+    number,
+    occupancy,
+    capacity,
+    preferredInstanceFull: row.preferredInstanceFull === true,
+  })
+}
+
+function colorForUser(userId: string) {
+  let hash = 0
+  for (const character of userId) hash = ((hash * 31) + character.charCodeAt(0)) >>> 0
+  const palette = [0xd99249, 0x4f91c7, 0x9d6fc0, 0x58a879, 0xc75f78, 0xc2a14d]
+  return palette[hash % palette.length]!
+}
+
+function mapRemoteMessage(value: unknown): StudyChatMessage[] {
+  const row = value as Record<string, unknown> | null
+  if (!row || typeof row.id !== 'string' || typeof row.userId !== 'string' || typeof row.displayName !== 'string' || typeof row.text !== 'string') return []
+  const parsedTime = typeof row.createdAt === 'number' ? row.createdAt : Date.parse(String(row.createdAt ?? ''))
+  const displayName = row.displayName.replace(CHAT_UNSAFE_CONTROLS, ' ').replace(/\s+/g, ' ').trim()
+  const text = row.text.replace(CHAT_UNSAFE_CONTROLS, ' ').replace(/\s+/g, ' ').trim()
+  if (!row.id || row.id.length > 160 || !row.userId || row.userId.length > 160 || !displayName || displayName.length > 80 || !text || text.length > CHAT_MAX_LENGTH || !Number.isFinite(parsedTime) || parsedTime <= 0) return []
+  return [{
+    id: row.id,
+    userId: row.userId,
+    displayName,
+    text,
+    createdAt: parsedTime,
+  }]
+}

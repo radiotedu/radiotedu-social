@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "image": {
+    "width": 1672,
+    "height": 941,
+    "sha256": "ac46adbe1dd91f26b82fb402abcc86580ce9dd61c0785403578e410410ac8e0c"
+  },
+  "nodes": [
+    { "id": "entrance", "point": [820, 895, 0] },
+    { "id": "lower-west", "point": [300, 830, 0] },
+    { "id": "lower-center", "point": [820, 825, 0] },
+    { "id": "lower-east", "point": [1330, 855, 0] },
+    { "id": "central-steps-lower", "point": [820, 785, 0] },
+    { "id": "central-steps-upper", "point": [820, 684, 1] },
+    { "id": "left-steps-lower", "point": [220, 660, 0] },
+    { "id": "left-steps-upper", "point": [332, 620, 1] },
+    { "id": "lawn-front", "point": [840, 650, 1] },
+    { "id": "lawn-center", "point": [835, 470, 1] },
+    { "id": "lawn-west", "point": [585, 515, 1] },
+    { "id": "stage-west", "point": [950, 560, 1] },
+    { "id": "stage-east", "point": [1420, 565, 1] },
+    { "id": "east-path", "point": [1510, 610, 1] },
+    { "id": "rear-path", "point": [820, 270, 1] },
+    { "id": "cafe-plaza", "point": [492, 468, 1] },
+    { "id": "cafe-approach", "point": [480, 395, 1] },
+    { "id": "spark", "point": [620, 435, 1] },
+    { "id": "rock", "point": [900, 395, 1] },
+    { "id": "bench-west-approach", "point": [389, 531, 1] },
+    { "id": "bench-cafe-approach", "point": [324, 508, 1] },
+    { "id": "bench-rear-approach", "point": [625, 235, 1] }
+  ],
+  "edges": [
+    { "from": "entrance", "to": "lower-center" },
+    { "from": "lower-center", "to": "lower-west" },
+    { "from": "lower-center", "to": "lower-east" },
+    { "from": "lower-center", "to": "central-steps-lower" },
+    { "from": "central-steps-lower", "to": "central-steps-upper", "kind": "stair" },
+    { "from": "lower-west", "to": "left-steps-lower" },
+    { "from": "left-steps-lower", "to": "left-steps-upper", "kind": "stair" },
+    { "from": "central-steps-upper", "to": "lawn-front" },
+    { "from": "lawn-front", "to": "lawn-center" },
+    { "from": "lawn-front", "to": "stage-west" },
+    { "from": "lawn-front", "to": "stage-east" },
+    { "from": "lawn-front", "to": "bench-west-approach" },
+    { "from": "lawn-center", "to": "lawn-west" },
+    { "from": "lawn-center", "to": "rear-path" },
+    { "from": "lawn-center", "to": "spark" },
+    { "from": "lawn-west", "to": "cafe-plaza" },
+    { "from": "lawn-west", "to": "bench-west-approach" },
+    { "from": "stage-west", "to": "stage-east" },
+    { "from": "stage-east", "to": "east-path" },
+    { "from": "east-path", "to": "rock" },
+    { "from": "rock", "to": "rear-path" },
+    { "from": "rear-path", "to": "cafe-plaza" },
+    { "from": "rear-path", "to": "bench-rear-approach" },
+    { "from": "cafe-plaza", "to": "cafe-approach" },
+    { "from": "cafe-plaza", "to": "bench-cafe-approach" },
+    { "from": "cafe-plaza", "to": "left-steps-upper" },
+    { "from": "left-steps-upper", "to": "bench-west-approach" }
+  ],
+  "seats": [
+    {
+      "id": "courtyard-bench-west",
+      "label": "Orta Bahçe bench",
+      "approachNodeId": "bench-west-approach",
+      "sit": [354, 584, 1],
+      "facing": "se",
+      "foregroundMask": [[305, 574], [393, 592], [393, 613], [305, 594]]
+    },
+    {
+      "id": "courtyard-bench-cafe",
+      "label": "Chillin Cafe bench",
+      "approachNodeId": "bench-cafe-approach",
+      "sit": [266, 483, 1],
+      "facing": "se",
+      "foregroundMask": [[218, 468], [304, 486], [304, 507], [218, 489]]
+    },
+    {
+      "id": "courtyard-bench-rear",
+      "label": "Rear courtyard bench",
+      "approachNodeId": "bench-rear-approach",
+      "sit": [594, 192, 1],
+      "facing": "s",
+      "foregroundMask": [[552, 187], [633, 201], [633, 216], [552, 202]]
+    }
+  ],
+  "navigation": {
+    "layers": [
+      {
+        "z": 0,
+        "walkable": [
+          [[0, 590], [230, 620], [575, 680], [1010, 700], [1510, 830], [1672, 885], [1580, 941], [0, 941]]
+        ]
+      },
+      {
+        "z": 1,
+        "walkable": [
+          [[535, 275], [1672, 415], [1480, 820], [575, 650]],
+          [[170, 175], [960, 70], [1672, 210], [1672, 430], [535, 275], [500, 520], [160, 610], [0, 555], [0, 350]],
+          [[1450, 405], [1672, 470], [1672, 900], [1480, 820]],
+          [[0, 520], [575, 650], [545, 705], [0, 610]]
+        ]
+      }
+    ],
+    "obstacles": [
+      [[270, 270], [455, 300], [455, 455], [270, 455]],
+      [[995, 465], [1395, 465], [1395, 625], [995, 625]],
+      [[0, 0], [475, 0], [465, 310], [150, 430], [0, 430]],
+      [[960, 0], [1672, 0], [1672, 330], [1450, 365], [960, 260]],
+      [[0, 540], [210, 575], [210, 635], [0, 610]],
+      [[400, 610], [540, 620], [570, 700], [420, 675]],
+      [[1020, 650], [1490, 760], [1430, 850], [1010, 755]],
+      [[305, 574], [393, 592], [393, 613], [305, 594]],
+      [[218, 468], [304, 486], [304, 507], [218, 489]],
+      [[552, 187], [633, 201], [633, 216], [552, 202]]
+    ],
+    "interactionObstacles": [
+      [[270, 270], [455, 300], [455, 455], [270, 455]],
+      [[995, 465], [1395, 465], [1395, 625], [995, 625]],
+      [[0, 0], [475, 0], [465, 310], [150, 430], [0, 430]],
+      [[960, 0], [1672, 0], [1672, 330], [1450, 365], [960, 260]],
+      [[0, 540], [210, 575], [210, 635], [0, 610]],
+      [[400, 610], [540, 620], [570, 700], [420, 675]],
+      [[1020, 650], [1490, 760], [1430, 850], [1010, 755]],
+      [[305, 574], [393, 592], [393, 613], [305, 594]],
+      [[218, 468], [304, 486], [304, 507], [218, 489]],
+      [[552, 187], [633, 201], [633, 216], [552, 202]]
+    ]
+  },
+  "actors": {
+    "spark": { "nodeId": "spark", "name": "Spark", "label": "Spark Radio" },
+    "rock": { "nodeId": "rock", "name": "Rock", "label": "Rock Radio" }
+  }
+}
