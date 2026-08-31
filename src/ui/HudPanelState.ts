@@ -4,6 +4,10 @@ export type HudPanelSnapshot = Readonly<{
   current: HudPanelName | 'closed'
 }>
 
+export function shouldIgnoreWorldMovementKey(defaultPrevented: boolean, hudPanel: string | undefined): boolean {
+  return defaultPrevented || hudPanel !== 'closed'
+}
+
 export class HudPanelState {
   #current: HudPanelName | 'closed' = 'closed'
 

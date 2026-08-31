@@ -469,7 +469,11 @@ export class RadioTEDUStudyAdapter implements StudyAdapter {
     const data = await this.#requestFrom<Record<string, unknown>>(
       this.#gamificationBase,
       `/social-arcade/pool-dive/sessions/${encodeURIComponent(sessionId)}/action`,
-      { method: 'POST', body: { nonce, choice } },
+      {
+        method: 'POST',
+        retryable: true,
+        body: { nonce, choice },
+      },
     )
     return mapSocialArcadeSnapshot(data)
   }
@@ -655,6 +659,10 @@ function nonNegativeInteger(value: unknown, fallback = 0) {
   return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : fallback
 }
 
+function authoritativeNonNegativeInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
+}
+
 const STUDY_ROOM_IDS: readonly StudyRoomId[] = Object.freeze([
   'library', 'chim-alan', 'grass-amphitheatre', 'sports-center', 'auditorium', 'learning-lab',
 ])
@@ -794,6 +802,18 @@ function mapSocialArcadeSnapshot(value: unknown): SocialArcadeSnapshot {
   if (result && (result.roundScore > 100 || result.completedRound < 1 || result.completedRound > totalRounds)) {
     throw new StudyAdapterError('INVALID_SOCIAL_ARCADE_RESPONSE')
   }
+  const hasPointsAwarded = Object.prototype.hasOwnProperty.call(row, 'pointsAwarded')
+  const hasSpendablePoints = Object.prototype.hasOwnProperty.call(row, 'spendablePoints')
+  const pointsAwarded = hasPointsAwarded ? authoritativeNonNegativeInteger(row.pointsAwarded) : null
+  const spendablePoints = hasSpendablePoints ? authoritativeNonNegativeInteger(row.spendablePoints) : null
+  const serverAuthoritative = row.verification === 'server-authoritative'
+  if (
+    (row.verification !== undefined && !serverAuthoritative)
+    || (hasPointsAwarded && pointsAwarded === null)
+    || (hasSpendablePoints && spendablePoints === null)
+    || ((hasPointsAwarded || hasSpendablePoints) && !serverAuthoritative)
+    || (final && (!result || !serverAuthoritative || !hasPointsAwarded || !hasSpendablePoints))
+  ) throw new StudyAdapterError('INVALID_SOCIAL_ARCADE_RESPONSE')
   return Object.freeze({
     session: Object.freeze({
       id: session.id,
@@ -808,9 +828,9 @@ function mapSocialArcadeSnapshot(value: unknown): SocialArcadeSnapshot {
       final,
     }),
     ...(result ? { result: Object.freeze(result) } : {}),
-    ...(row.pointsAwarded !== undefined ? { pointsAwarded: nonNegativeInteger(row.pointsAwarded) } : {}),
-    ...(row.spendablePoints !== undefined ? { spendablePoints: nonNegativeInteger(row.spendablePoints) } : {}),
-    ...(row.verification === 'server-authoritative' ? { verification: 'server-authoritative' as const } : {}),
+    ...(hasPointsAwarded ? { pointsAwarded: pointsAwarded! } : {}),
+    ...(hasSpendablePoints ? { spendablePoints: spendablePoints! } : {}),
+    ...(serverAuthoritative ? { verification: 'server-authoritative' as const } : {}),
   })
 }
 

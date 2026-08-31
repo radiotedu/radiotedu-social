@@ -27,9 +27,9 @@ test('official RadioTEDU wordmark stays visible and non-overlapping on home and 
   const hudLogoBox = await hudLogo.boundingBox()
   expect(hudLogoBox).not.toBeNull()
   if (testInfo.project.use.hasTouch) {
-    const statusBox = await page.locator('.game-status').boundingBox()
-    expect(statusBox).not.toBeNull()
-    expect(hudLogoBox!.y + hudLogoBox!.height).toBeLessThanOrEqual(statusBox!.y)
+    const focusClockBox = await page.locator('.study-clock').boundingBox()
+    expect(focusClockBox).not.toBeNull()
+    expect(hudLogoBox!.x + hudLogoBox!.width).toBeLessThanOrEqual(focusClockBox!.x)
   } else {
     const roomContextBox = await roomContext.boundingBox()
     expect(roomContextBox).not.toBeNull()

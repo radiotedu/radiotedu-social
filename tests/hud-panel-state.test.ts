@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { HudPanelState } from '../src/ui/HudPanelState'
+import { HudPanelState, shouldIgnoreWorldMovementKey } from '../src/ui/HudPanelState'
 
 describe('HudPanelState', () => {
   it('starts closed and exposes one immutable panel snapshot', () => {
@@ -67,5 +67,12 @@ describe('HudPanelState', () => {
     expect(panels.expanded('account')).toBe('true')
     panels.toggle('account')
     expect(panels.snapshot().current).toBe('closed')
+  })
+
+  it('blocks world movement for prevented keys or while any HUD sheet is open', () => {
+    expect(shouldIgnoreWorldMovementKey(false, 'closed')).toBe(false)
+    expect(shouldIgnoreWorldMovementKey(true, 'closed')).toBe(true)
+    expect(shouldIgnoreWorldMovementKey(false, 'events')).toBe(true)
+    expect(shouldIgnoreWorldMovementKey(false, undefined)).toBe(true)
   })
 })

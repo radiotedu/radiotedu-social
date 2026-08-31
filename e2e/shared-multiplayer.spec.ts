@@ -30,6 +30,7 @@ type SharedMessage = Readonly<{
 
 const OUTPUT = path.resolve('..', 'artifacts', 'study-game', 'shared-multiplayer')
 const AD_OUTPUT = path.resolve('..', 'artifacts', 'study-game', 'social-ad-recording')
+const MOTION_OUTPUT = path.resolve('..', 'artifacts', 'study-game', 'social-motion-recording')
 const AD_DESKTOP = 'C:/Users/tuna.ozsari/Desktop/RadioTEDU-Social-Advertisement-1x1-20260828-r29.webm'
 const INSTANCE_ID = 'library-1'
 
@@ -190,13 +191,18 @@ async function createPlayer(
   account: TestAccount,
   compact: boolean,
   recordAdvertisement = false,
+  recordMotion = false,
 ): Promise<BrowserContext> {
   const context = await browser.newContext({
     baseURL,
     viewport: recordAdvertisement ? { width: 1080, height: 1080 } : compact ? { width: 412, height: 839 } : { width: 1280, height: 820 },
     isMobile: compact,
     hasTouch: compact,
-    recordVideo: recordAdvertisement ? { dir: AD_OUTPUT, size: { width: 1080, height: 1080 } } : undefined,
+    recordVideo: recordAdvertisement
+      ? { dir: AD_OUTPUT, size: { width: 1080, height: 1080 } }
+      : recordMotion
+        ? { dir: MOTION_OUTPUT, size: { width: 1280, height: 820 } }
+        : undefined,
   })
   await context.addInitScript(({ account: player }) => {
     HTMLMediaElement.prototype.play = async function playForSharedWorldTest() { return undefined }
@@ -224,11 +230,10 @@ async function farthestReachableNode(page: import('@playwright/test').Page): Pro
 }
 
 async function remoteActorWorldPosition(page: import('@playwright/test').Page, userId: string) {
-  return page.evaluate((remoteUserId) => {
-    const actor = window.__STUDY_GAME_APP__.tapTargets().blockers
-      .find((blocker) => blocker.kind === 'player' && blocker.id === remoteUserId)
-    return actor?.world ?? null
-  }, userId)
+  return page.evaluate((remoteUserId) => (
+    window.__STUDY_GAME_APP__.snapshot().remotePlayers
+      .find((player) => player.userId === remoteUserId)?.position ?? null
+  ), userId)
 }
 
 async function remoteActorProfile(page: import('@playwright/test').Page, userId: string) {
@@ -305,6 +310,8 @@ async function sitAtAvailableSeat(page: import('@playwright/test').Page, exclude
 
 test('keeps two independent students in one live room with movement, chat, and reconnect', async ({ browser, baseURL }, testInfo) => {
   const advertisementRequested = process.env.SOCIAL_AD_RECORD === '1'
+  const motionRequested = process.env.SOCIAL_MOTION_RECORD === '1'
+  const motionFramesRequested = process.env.SOCIAL_MOTION_FRAMES === '1'
   test.setTimeout(advertisementRequested ? 360_000 : 180_000)
   if (!baseURL) throw new Error('Playwright base URL is unavailable')
   fs.mkdirSync(OUTPUT, { recursive: true })
@@ -321,11 +328,17 @@ test('keeps two independent students in one live room with movement, chat, and r
     equipped: { hair: 'short-hair', top: 'radiotedu-tee', bottom: 'jeans', shoes: 'sneakers', hat: 'bucket-hat' },
   } as const
   if (recordAdvertisement) fs.mkdirSync(AD_OUTPUT, { recursive: true })
+  if (motionRequested && !compact) fs.mkdirSync(MOTION_OUTPUT, { recursive: true })
+  const motionFramesDir = motionFramesRequested && !compact
+    ? path.join(MOTION_OUTPUT, `after-frames-${new Date().toISOString().replace(/[:.]/g, '-')}`)
+    : null
+  if (motionFramesDir) fs.mkdirSync(motionFramesDir, { recursive: true })
   const ardaContext = await createPlayer(browser, baseURL, server, arda, compact, recordAdvertisement)
-  const denizContext = await createPlayer(browser, baseURL, server, deniz, compact)
+  const denizContext = await createPlayer(browser, baseURL, server, deniz, compact, false, motionRequested && !compact)
   const ardaPage = await ardaContext.newPage()
   const denizPage = await denizContext.newPage()
   const advertisementVideo = recordAdvertisement ? ardaPage.video() : null
+  const motionVideo = motionRequested && !compact ? denizPage.video() : null
   let advertisementComplete = false
   const runtimeErrors: string[] = []
   for (const page of [ardaPage, denizPage]) {
@@ -334,9 +347,6 @@ test('keeps two independent students in one live room with movement, chat, and r
   }
 
   try {
-    if (recordAdvertisement) {
-      await showAdvertisementCut(ardaPage, 'TEDU CAMPUS · ONLINE', 'A desk is better together.', 'Meet your friends, choose your look and focus in the same live campus.', 2_200)
-    }
     await Promise.all([
       ardaPage.goto('/?room=library'),
       denizPage.goto('/?room=library'),
@@ -345,6 +355,9 @@ test('keeps two independent students in one live room with movement, chat, and r
       ardaPage.locator('html[data-study-ready="true"]').waitFor({ timeout: 30_000 }),
       denizPage.locator('html[data-study-ready="true"]').waitFor({ timeout: 30_000 }),
     ])
+    if (recordAdvertisement) {
+      await showAdvertisementCut(ardaPage, 'TEDU CAMPUS · ONLINE', 'A desk is better together.', 'Meet your friends, choose your look and focus in the same live campus.', 2_200)
+    }
 
     await expect.poll(() => server.presence.size, { timeout: 15_000 }).toBe(2)
     await expect.poll(() => ardaPage.locator('#people-count').textContent(), { timeout: 25_000 }).toBe('1')
@@ -386,11 +399,44 @@ test('keeps two independent students in one live room with movement, chat, and r
     const firstTarget = await farthestReachableNode(ardaPage)
     await ardaPage.evaluate((nodeId) => window.__STUDY_GAME_APP__.walkToNode(nodeId), firstTarget)
     await expect.poll(() => server.presence.get(arda.id)?.nodeId, { timeout: 15_000 }).toBe(firstTarget)
-    await expect.poll(async () => {
-      const next = await remoteActorWorldPosition(denizPage, arda.id)
-      if (!next || !firstRemotePosition) return 0
-      return Math.hypot(next.x - firstRemotePosition.x, next.y - firstRemotePosition.y)
-    }, { timeout: 25_000 }).toBeGreaterThan(20)
+    const motionSamples: Array<{ frame: number; elapsedMs: number; x: number; y: number }> = []
+    const sampleStartedAt = Date.now()
+    for (let frame = 0; frame < 90; frame += 1) {
+      const position = await remoteActorWorldPosition(denizPage, arda.id)
+      if (position) motionSamples.push({ frame, elapsedMs: Date.now() - sampleStartedAt, ...position })
+      if (motionFramesDir && frame % 5 === 0) {
+        await denizPage.screenshot({ path: path.join(motionFramesDir, `frame-${String(frame).padStart(3, '0')}.png`) })
+      }
+      await denizPage.waitForTimeout(100)
+    }
+    const frameDeltas = motionSamples.slice(1).map((sample, index) => {
+      const previous = motionSamples[index]!
+      return Math.hypot(sample.x - previous.x, sample.y - previous.y)
+    })
+    const movingFrames = frameDeltas.filter((delta) => delta > 0.5)
+    const measuredDistance = frameDeltas.reduce((total, delta) => total + delta, 0)
+    const maxFrameDelta = Math.max(0, ...frameDeltas)
+    const directDisplacement = firstRemotePosition && motionSamples.length
+      ? Math.hypot(
+          motionSamples.at(-1)!.x - firstRemotePosition.x,
+          motionSamples.at(-1)!.y - firstRemotePosition.y,
+        )
+      : 0
+    if (motionRequested && !compact) {
+      fs.writeFileSync(path.join(MOTION_OUTPUT, 'remote-avatar-frame-analysis.json'), JSON.stringify({
+        capturedAt: new Date().toISOString(),
+        sampleIntervalMs: 100,
+        samples: motionSamples,
+        movingFrames: movingFrames.length,
+        measuredDistance,
+        directDisplacement,
+        maxFrameDelta,
+        visualFramesDirectory: motionFramesDir,
+      }, null, 2))
+    }
+    expect(directDisplacement).toBeGreaterThan(20)
+    expect(movingFrames.length).toBeGreaterThan(3)
+    expect(maxFrameDelta).toBeLessThan(Math.max(30, measuredDistance * 0.45))
 
     if (recordAdvertisement) {
       const denizStart = await remoteActorWorldPosition(ardaPage, deniz.id)
@@ -459,6 +505,10 @@ test('keeps two independent students in one live room with movement, chat, and r
     if (recordAdvertisement && advertisementComplete && advertisementVideo) {
       const videoPath = await advertisementVideo.path()
       fs.copyFileSync(videoPath, AD_DESKTOP)
+    }
+    if (motionVideo) {
+      const videoPath = await motionVideo.path()
+      fs.copyFileSync(videoPath, path.join(MOTION_OUTPUT, 'remote-avatar-after.webm'))
     }
   }
 })

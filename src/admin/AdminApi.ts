@@ -12,7 +12,71 @@ import {
   type ModerationUser,
 } from './AdminDomain'
 
-interface ApiEnvelope<T> { success?: boolean; data?: T; message?: string; error?: string }
+interface ApiEnvelope<T> {
+  success?: unknown
+  data?: T
+  message?: unknown
+  error?: unknown
+  code?: unknown
+  requestId?: unknown
+}
+
+const ADMIN_REQUEST_TIMEOUT_MS = 12_000
+const ADMIN_ERROR_CODE = /^[A-Z][A-Z0-9_]{2,63}$/
+const ADMIN_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const UNSAFE_ERROR_TEXT = /[\u0000-\u001f\u007f-\u009f]/
+
+class AdminApiError extends Error {
+  readonly name = 'AdminApiError'
+
+  constructor(
+    message: string,
+    readonly code: string,
+    readonly status: number,
+    readonly requestId: string | null,
+  ) {
+    super(requestId ? `${message} (Request ID: ${requestId})` : message)
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function safeErrorText(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const text = value.trim()
+  return text && text.length <= 240 && !UNSAFE_ERROR_TEXT.test(text) ? text : null
+}
+
+function safeErrorCode(value: unknown): string | null {
+  return typeof value === 'string' && ADMIN_ERROR_CODE.test(value) ? value : null
+}
+
+function safeRequestId(value: unknown): string | null {
+  return typeof value === 'string' && ADMIN_REQUEST_ID.test(value) ? value : null
+}
+
+function isJsonResponse(response: Response): boolean {
+  const mediaType = (response.headers.get('Content-Type') ?? '').split(';', 1)[0]!.trim().toLowerCase()
+  return mediaType === 'application/json' || mediaType.endsWith('+json')
+}
+
+function responseRequestId(response: Response, envelope?: ApiEnvelope<unknown>): string | null {
+  const headerId = safeRequestId(response.headers.get('X-Request-Id'))
+  const envelopeId = safeRequestId(envelope?.requestId)
+  if (headerId && envelopeId && headerId !== envelopeId) return null
+  return headerId ?? envelopeId
+}
+
+function invalidAdminResponse(response: Response, requestId = responseRequestId(response)): AdminApiError {
+  return new AdminApiError(
+    'The moderation service returned an invalid response.',
+    'INVALID_ADMIN_RESPONSE',
+    response.status,
+    requestId,
+  )
+}
 
 export interface AdminTransport {
   session(): Promise<AdminSession>
@@ -65,22 +129,67 @@ export class RemoteAdminTransport implements AdminTransport {
   }
 
   async #request<T>(path: string, options: { method?: 'GET' | 'POST' | 'PATCH'; body?: object } = {}): Promise<T> {
-    const response = await this.#requestImpl(`${this.#base}${path}`, {
-      method: options.method ?? 'GET',
-      credentials: 'same-origin',
-      headers: {
-        Accept: 'application/json',
-        'Cache-Control': 'no-store',
-        'X-Study-Admin-Intent': 'moderation-console',
-        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-      },
-      body: options.body ? JSON.stringify(options.body) : undefined,
+    const controller = new AbortController()
+    let timedOut = false
+    let timeout: ReturnType<typeof globalThis.setTimeout> | null = null
+    const timeoutResponse = new Promise<Response>((_resolve, reject) => {
+      timeout = globalThis.setTimeout(() => {
+        timedOut = true
+        controller.abort()
+        reject(new AdminApiError(
+          'The moderation request timed out. Try again.',
+          'ADMIN_REQUEST_TIMEOUT',
+          0,
+          null,
+        ))
+      }, ADMIN_REQUEST_TIMEOUT_MS)
     })
-    const envelope = await response.json() as ApiEnvelope<T>
-    if (!response.ok || envelope.success !== true || envelope.data === undefined) {
-      throw new Error(envelope.message ?? envelope.error ?? `Admin request failed (${response.status})`)
+
+    let response: Response
+    try {
+      response = await Promise.race([
+        this.#requestImpl(`${this.#base}${path}`, {
+          method: options.method ?? 'GET',
+          credentials: 'same-origin',
+          headers: {
+            Accept: 'application/json',
+            'Cache-Control': 'no-store',
+            'X-Study-Admin-Intent': 'moderation-console',
+            ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+          },
+          body: options.body ? JSON.stringify(options.body) : undefined,
+          signal: controller.signal,
+        }),
+        timeoutResponse,
+      ])
+    } catch (error) {
+      if (error instanceof AdminApiError) throw error
+      if (timedOut) {
+        throw new AdminApiError('The moderation request timed out. Try again.', 'ADMIN_REQUEST_TIMEOUT', 0, null)
+      }
+      throw new AdminApiError('The moderation service could not be reached.', 'ADMIN_REQUEST_FAILED', 0, null)
+    } finally {
+      if (timeout !== null) globalThis.clearTimeout(timeout)
     }
-    return envelope.data
+
+    if (!isJsonResponse(response)) throw invalidAdminResponse(response)
+    let parsed: unknown
+    try {
+      parsed = await response.json()
+    } catch {
+      throw invalidAdminResponse(response)
+    }
+    if (!isRecord(parsed)) throw invalidAdminResponse(response)
+    const envelope = parsed as ApiEnvelope<T>
+    const requestId = responseRequestId(response, envelope)
+    if (response.ok && envelope.success === true && envelope.data !== undefined) return envelope.data
+    if (envelope.success !== false) throw invalidAdminResponse(response, requestId)
+
+    const message = safeErrorText(envelope.message)
+      ?? safeErrorText(envelope.error)
+      ?? `Admin request failed (${response.status})`
+    const code = safeErrorCode(envelope.code) ?? 'ADMIN_REQUEST_FAILED'
+    throw new AdminApiError(message, code, response.status, requestId)
   }
 }
 

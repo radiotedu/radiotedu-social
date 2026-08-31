@@ -406,8 +406,16 @@ function renderStudyShell(session: StudySession, serverAuthoritative: boolean, e
       <span><small>SWIMMING POOL ARCADE</small><strong>Deep Dive</strong><b>Walk to the board · 8 verified rounds</b></span>
       <i class="deep-dive-launch-arrow" data-lucide="chevron-right" aria-hidden="true"></i>
     </button>
+    <nav class="movement-dpad" data-testid="movement-dpad" data-study-ui aria-label="Movement controls">
+      <button class="movement-dpad-up" type="button" data-move-direction="up" data-move-x="0" data-move-y="-1" aria-label="Move up"><span aria-hidden="true">↑</span></button>
+      <button class="movement-dpad-left" type="button" data-move-direction="left" data-move-x="-1" data-move-y="0" aria-label="Move left"><span aria-hidden="true">←</span></button>
+      <i class="movement-dpad-center" aria-hidden="true"></i>
+      <button class="movement-dpad-right" type="button" data-move-direction="right" data-move-x="1" data-move-y="0" aria-label="Move right"><span aria-hidden="true">→</span></button>
+      <button class="movement-dpad-down" type="button" data-move-direction="down" data-move-x="0" data-move-y="1" aria-label="Move down"><span aria-hidden="true">↓</span></button>
+    </nav>
     <nav class="action-dock" data-study-ui aria-label="Game actions">
       <button id="navigator-toggle" data-hud-toggle="navigator" data-testid="navigator-toggle" class="dock-button" type="button" aria-label="Campus" aria-expanded="false" aria-controls="navigator-panel"><span class="dock-icon"><i data-lucide="map" aria-hidden="true"></i></span><span class="button-label">Campus</span></button>
+      <button id="seat-action" class="dock-button seat-action" type="button" aria-label="Sit" aria-keyshortcuts="E" hidden disabled><span class="dock-icon"><i data-lucide="armchair" aria-hidden="true"></i></span><span class="button-label" data-seat-action-label>Sit · E</span></button>
       <button id="chat-toggle" data-hud-toggle="chat" class="dock-button" type="button" aria-label="Chat" aria-expanded="false" aria-controls="chat-panel"><span class="dock-icon"><i data-lucide="message-circle" aria-hidden="true"></i></span><span class="button-label">Chat</span><strong id="chat-unread" class="dock-badge" hidden>0</strong></button>
       <button id="people-toggle" data-hud-toggle="people" data-testid="people-toggle" class="dock-button" type="button" aria-label="People" aria-expanded="false" aria-controls="presence-panel"><span class="dock-icon"><i data-lucide="users-round" aria-hidden="true"></i></span><span class="button-label">People</span><strong id="people-count" class="dock-badge">0</strong></button>
       <button id="wardrobe-toggle" data-hud-toggle="wardrobe" data-testid="wardrobe-toggle" class="dock-button" type="button" aria-label="Wardrobe" aria-expanded="false" aria-controls="wardrobe-panel"><span class="dock-icon"><i data-lucide="shirt" aria-hidden="true"></i></span><span class="button-label">Wardrobe</span></button>
@@ -1732,12 +1740,20 @@ function bindChat(adapter: StudyAdapter, safety: IgnoredPlayerStore) {
   let hydratedRoom: StudyRoomId | null = null
   let pending = false
   let unread = 0
+  let feedbackRevision = 0
+  const defaultFeedback = 'Be kind · No spam · Room chat'
 
-  const feedback = (message: string, state: 'idle' | 'sending' | 'error' = 'idle') => {
+  const feedback = (message: string, state: 'idle' | 'sending' | 'error' = 'idle', resetAfterMs = 0) => {
     const output = document.querySelector<HTMLElement>('#chat-feedback')
     if (!output) return
+    const revision = ++feedbackRevision
     output.textContent = message
     output.dataset.state = state
+    if (resetAfterMs > 0) {
+      globalThis.setTimeout(() => {
+        if (feedbackRevision === revision && !pending) feedback(defaultFeedback)
+      }, resetAfterMs)
+    }
   }
   const syncUnread = () => {
     const badge = document.querySelector<HTMLElement>('#chat-unread')
@@ -1797,7 +1813,7 @@ function bindChat(adapter: StudyAdapter, safety: IgnoredPlayerStore) {
         appendChatMessage(accepted, accountId)
         showChatInWorld(accepted, roomId)
         window.dispatchEvent(new CustomEvent('radiotedu:study-social-action', { detail: { kind: 'chat' } }))
-        feedback('Delivered to this room.')
+        feedback('Delivered to this room.', 'idle', 4_000)
       })
       input.value = ''
       counter.textContent = `0/${CHAT_MAX_LENGTH}`
@@ -1845,8 +1861,10 @@ function bindChat(adapter: StudyAdapter, safety: IgnoredPlayerStore) {
             unread += newRemote
             syncUnread()
           }
-          document.querySelector('#chat-connection')?.classList.remove('is-offline')
-          feedback('Be kind · No spam · Room chat')
+          const connection = document.querySelector('#chat-connection')
+          const wasOffline = connection?.classList.contains('is-offline') ?? false
+          connection?.classList.remove('is-offline')
+          if (wasOffline) feedback(defaultFeedback)
         })
       }).catch(() => {
         document.querySelector('#chat-connection')?.classList.add('is-offline')
@@ -1859,6 +1877,7 @@ function bindChat(adapter: StudyAdapter, safety: IgnoredPlayerStore) {
       unread = 0
       syncUnread()
       syncRoomLabel()
+      feedback(defaultFeedback)
       refresh()
     })
     globalThis.setInterval(refresh, CHAT_REFRESH_INTERVAL_MS)

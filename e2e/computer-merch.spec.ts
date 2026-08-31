@@ -107,7 +107,7 @@ test('server computer merch purchases, equips, and updates the seated desk immed
   await page.locator('html[data-game-state="seated"][data-seated-seat-id="front-left"]').waitFor({ timeout: 30_000 })
   await expect.poll(() => page.evaluate(() => window.__STUDY_GAME_APP__.snapshot().studyDeviceTexture)).toContain('study-device:laptop-campus')
 
-  await page.getByRole('button', { name: 'Campus Shop' }).click()
+  await page.getByRole('button', { name: 'Open Exclusive Store' }).click()
   await expect(page.locator('[data-computer-item]')).toHaveCount(3)
 
   for (const [itemId, textureId, expectedGold] of [
@@ -122,12 +122,12 @@ test('server computer merch purchases, equips, and updates the seated desk immed
     await button.click()
     await expect(button).toBeDisabled()
     await expect.poll(() => page.evaluate(() => window.__STUDY_GAME_APP__.snapshot().studyDeviceTexture)).toContain(`study-device:${textureId}`)
-    await page.getByLabel('Close Campus Shop').click()
+    await page.getByLabel('Close Exclusive Store').click()
     await page.screenshot({
       path: path.join(artifactDir, `${testInfo.project.name}--${textureId}.png`),
       clip: await avatarAndDeskClip(page),
     })
-    await page.getByRole('button', { name: 'Campus Shop' }).click()
+    await page.getByRole('button', { name: 'Open Exclusive Store' }).click()
   }
 
   const state = await page.evaluate(() => window.__COMPUTER_E2E_STATE__)

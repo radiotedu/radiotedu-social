@@ -95,7 +95,7 @@ try {
 
     await page.locator('#events-toggle').click()
     await page.locator('.events-view-tabs').getByRole('button', { name: 'Arcade', exact: true }).click()
-    await page.getByRole('button', { name: 'Start verified game' }).click()
+    await page.locator('[data-pool-start]').click()
     await page.locator('.pool-dive-stage[data-pool-motion="ready"]').waitFor()
     await page.screenshot({ path: path.join(outputDir, `${name}-ready.png`) })
 

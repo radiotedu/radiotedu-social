@@ -48,6 +48,7 @@ test('every wearable renders, equips, persists, walks, and sits on desktop and m
   await expect(page.locator('html')).toHaveAttribute('data-hat-id', 'beanie')
 
   await page.getByRole('tab', { name: 'Library' }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-room-id', 'library')
   await page.evaluate(() => window.__STUDY_GAME_APP__.walkToSeat('front-left'))
   await expect(page.locator('html')).toHaveAttribute('data-game-state', 'seated', { timeout: 30_000 })
   const seated = await page.evaluate(() => window.__STUDY_GAME_APP__.snapshot())

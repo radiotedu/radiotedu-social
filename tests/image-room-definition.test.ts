@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
+import { campusCatVariantsForRoom, roomTextureAssets } from '../src/game/RoomAssetPlan'
 import { NavigationGraph } from '../src/pathfinding/NavigationGraph'
-import { IMAGE_ROOMS, roomPointToPixel } from '../src/rooms/ImageRoomDefinition'
+import { IMAGE_ROOMS, roomPointToPixel, type ImageRoomId } from '../src/rooms/ImageRoomDefinition'
 
 describe('IMAGE_ROOMS', () => {
   it('preserves stable room IDs while exposing campus-grounded rooms', () => {
@@ -23,8 +24,35 @@ describe('IMAGE_ROOMS', () => {
     expect(IMAGE_ROOMS.auditorium.image.sha256).toBe('7783287e9b07ab72fd5500aa028436f1b5c7b6e6c5ef98888fa40e7938b7ce72')
     expect(IMAGE_ROOMS['sports-center'].image.width / IMAGE_ROOMS['sports-center'].image.height).toBeCloseTo(16 / 9, 2)
     expect(IMAGE_ROOMS.auditorium.image.width / IMAGE_ROOMS.auditorium.image.height).toBeCloseTo(16 / 9, 2)
-    expect(IMAGE_ROOMS['learning-lab'].image.sha256).toBe('bfe6dbd97368a088aba8ef558de4059d17c1bdf287bd61296d58b40e68651f50')
+    expect(IMAGE_ROOMS['learning-lab'].image.sha256).toBe('2b6c33d42727b9ae580d35bbf38595c7e4af72c783cb360e4a71f0c2342abbff')
     expect(IMAGE_ROOMS['learning-lab'].image.width / IMAGE_ROOMS['learning-lab'].image.height).toBeCloseTo(16 / 9, 2)
+  })
+
+  it('budgets startup textures for only the active room while preserving exact asset URLs', () => {
+    const roomIds = Object.keys(IMAGE_ROOMS) as ImageRoomId[]
+    const libraryAssets = roomTextureAssets('library', null, '/')
+    const libraryKeys = new Set(libraryAssets.map((asset) => asset.key))
+    const allRoomKeys = new Set(roomIds.flatMap((roomId) => (
+      roomTextureAssets(roomId, null, '/').map((asset) => asset.key)
+    )))
+
+    expect(libraryAssets.find((asset) => asset.key === 'room:library')?.url).toBe('/assets/rooms/library-wide.png')
+    expect(libraryAssets.find((asset) => asset.key === 'campus-cat:0')?.url).toBe('/assets/npcs/campus-cat-tarcin-walk.png')
+    expect(libraryKeys.size).toBe(60)
+    expect(libraryKeys.size).toBeLessThan(allRoomKeys.size)
+    for (const roomId of roomIds.filter((candidate) => candidate !== 'library')) {
+      expect(libraryKeys.has(`room:${roomId}`), roomId).toBe(false)
+    }
+    expect(roomTextureAssets('auditorium', null, '/')).toContainEqual(expect.objectContaining({
+      key: 'auditorium:radiotedu-screen',
+      url: '/assets/rooms/auditorium-radiotedu-screen-r1.png',
+    }))
+  })
+
+  it('loads only the active cat roster and follows the equipped Library pet', () => {
+    expect(campusCatVariantsForRoom('sports-center', null)).toEqual([1])
+    expect(campusCatVariantsForRoom('grass-amphitheatre', null)).toEqual([0, 2])
+    expect(campusCatVariantsForRoom('library', 'pet-komur')).toEqual([2])
   })
 
   it('routes from each exact room spawn to every configured seat', () => {

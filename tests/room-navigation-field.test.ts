@@ -22,7 +22,7 @@ const ROOM_HASHES = Object.freeze({
   'fatma-semih-akbil-auditorium-wide.png': '75c424a223515a3bd455c6a4c09694db28bd33dcdb472484ecb67da91454ff9c',
   'tedu-learning-lab-wide.png': '3a9dc739ad7d94a4a422c36a30841b8e6a417d8e1025ae69912c6eee5cc92bcc',
   'tedu-pedagogy-learning-lab-wide-r2.png': '572912669e48aaa3e72c1b6f532d28111566b854af7377d96b4516a1d4785e32',
-  'tedu-computer-lab-wide-r3.png': 'bfe6dbd97368a088aba8ef558de4059d17c1bdf287bd61296d58b40e68651f50',
+  'tedu-computer-lab-wide-r4-small-computers.png': '2b6c33d42727b9ae580d35bbf38595c7e4af72c783cb360e4a71f0c2342abbff',
 })
 
 describe('room navigation fields', () => {

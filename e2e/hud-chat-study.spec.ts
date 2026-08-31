@@ -17,6 +17,7 @@ test('presents an immersive game HUD and room-scoped working chat', async ({ pag
 
   await expect(page.locator('.action-dock')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Campus', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Sit', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Chat' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'People' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Wardrobe' })).toBeVisible()
@@ -32,7 +33,7 @@ test('presents an immersive game HUD and room-scoped working chat', async ({ pag
       rowSpread: Math.max(...buttons.map((button) => button.top)) - Math.min(...buttons.map((button) => button.top)),
     }
   })
-  expect(actionDockLayout.count).toBe(6)
+  expect(actionDockLayout.count).toBe(7)
   expect(actionDockLayout.gap).toBeGreaterThanOrEqual(0)
   expect(actionDockLayout.gap).toBeLessThanOrEqual(6)
   expect(actionDockLayout.rowSpread).toBeLessThanOrEqual(1)

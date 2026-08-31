@@ -41,6 +41,19 @@ describe('Study web-session bridge', () => {
     expect(new Headers(init?.headers).get('X-RadioTEDU-CSRF')).toBe('csrf-proof')
   })
 
+  it('allows the same-origin server-scored Social arcade API with CSRF proof', async () => {
+    const fetchImpl = vi.fn<FetchLike>(async () => new Response('{}', { status: 200 }))
+    const bridge = createStudyWebBridge(SESSION, { origin: 'https://radiotedu.com' }, fetchImpl)
+    await bridge.fetchImpl('/jukebox/api/v1/gamification/social-arcade/pool-dive/start', {
+      method: 'POST',
+      body: '{}',
+    })
+    const [input, init] = fetchImpl.mock.calls[0]!
+    expect(input).toBe('/jukebox/api/v1/gamification/social-arcade/pool-dive/start')
+    expect(init?.credentials).toBe('same-origin')
+    expect(new Headers(init?.headers).get('X-RadioTEDU-CSRF')).toBe('csrf-proof')
+  })
+
   it('rejects cross-origin and out-of-scope requests before fetch', async () => {
     const fetchImpl = vi.fn<FetchLike>(async () => new Response('{}', { status: 200 }))
     const bridge = createStudyWebBridge(SESSION, { origin: 'https://radiotedu.com' }, fetchImpl)

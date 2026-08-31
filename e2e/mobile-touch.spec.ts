@@ -34,7 +34,7 @@ test('mobile canvas supports tap-to-move, tap-to-sit, and tap-to-stand', async (
     const bounds = button.getBoundingClientRect()
     return { label: button.getAttribute('aria-label'), top: bounds.top, right: bounds.right, bottom: bounds.bottom, left: bounds.left }
   }))
-  expect(dockBounds).toHaveLength(6)
+  expect(dockBounds).toHaveLength(7)
   for (const [index, bounds] of dockBounds.entries()) {
     expect(bounds.left, `${bounds.label} left bound`).toBeGreaterThanOrEqual(0)
     expect(bounds.top, `${bounds.label} top bound`).toBeGreaterThanOrEqual(0)
@@ -86,4 +86,62 @@ test('mobile canvas supports tap-to-move, tap-to-sit, and tap-to-stand', async (
       && snapshot.lastWalkTarget !== null
       && Math.hypot(snapshot.position.x - snapshot.lastWalkTarget.x, snapshot.position.y - snapshot.lastWalkTarget.y) <= 8
   }).toBe(true)
+})
+
+test('mobile movement controls form a square D-pad and route through the scene graph', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-chromium', 'touch-only controls')
+
+  await page.goto('/')
+  await page.locator('html[data-study-ready="true"]').waitFor({ timeout: 30_000 })
+
+  const pad = page.getByTestId('movement-dpad')
+  await expect(pad).toBeVisible()
+  const geometry = await pad.locator('button').evaluateAll((buttons) => Object.fromEntries(buttons.map((button) => {
+    const bounds = button.getBoundingClientRect()
+    return [button.getAttribute('data-move-direction'), {
+      x: Math.round(bounds.x),
+      y: Math.round(bounds.y),
+      width: Math.round(bounds.width),
+      height: Math.round(bounds.height),
+    }]
+  }))) as Record<string, { x: number; y: number; width: number; height: number }>
+
+  expect(Object.keys(geometry).sort()).toEqual(['down', 'left', 'right', 'up'])
+  for (const bounds of Object.values(geometry)) {
+    expect(bounds.width).toBe(44)
+    expect(bounds.height).toBe(44)
+  }
+  const up = geometry.up!
+  const left = geometry.left!
+  const right = geometry.right!
+  const down = geometry.down!
+  expect(up.y).toBeLessThan(left.y)
+  expect(left.y).toBe(right.y)
+  expect(down.y).toBeGreaterThan(left.y)
+  expect(up.x).toBe(down.x)
+  expect(left.x).toBeLessThan(up.x)
+  expect(right.x).toBeGreaterThan(up.x)
+
+  const before = await page.evaluate(() => window.__STUDY_GAME_APP__.snapshot())
+  const candidates = [
+    { direction: 'up', x: 0, y: -1 },
+    { direction: 'left', x: -1, y: 0 },
+    { direction: 'right', x: 1, y: 0 },
+    { direction: 'down', x: 0, y: 1 },
+  ]
+  const viable = await page.evaluate((options) => {
+    const start = window.__STUDY_GAME_APP__.snapshot()
+    return options.find(({ x, y }) => window.__STUDY_GAME_APP__.tapTargets().nodes.some((node) => {
+      if (!node.reachable || node.id === start.nodeId) return false
+      const dx = node.world.x - start.position.x
+      const dy = node.world.y - start.position.y
+      const length = Math.hypot(dx, dy)
+      return length > 0 && ((dx * x) + (dy * y)) / length > 0.18
+    }))?.direction ?? null
+  }, candidates)
+  if (!viable) throw new Error('Expected at least one graph direction from the initial node')
+
+  await pad.locator(`[data-move-direction="${viable}"]`).click()
+  await expect(page.locator('html')).toHaveAttribute('data-game-state', /walking|stair|ready/)
+  await expect.poll(async () => (await page.evaluate(() => window.__STUDY_GAME_APP__.snapshot())).nodeId).not.toBe(before.nodeId)
 })

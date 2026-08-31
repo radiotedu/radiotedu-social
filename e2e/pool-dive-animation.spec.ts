@@ -91,3 +91,19 @@ test('reduced motion preserves the complete verified interaction', async ({ page
   await expect(page.locator('[data-pool-round]')).toContainText('2 / 8')
   await expect(page.locator('[data-pool-score]')).toHaveText('75')
 })
+
+test('keeps Deep Dive arrow controls inside the HUD without moving the world avatar', async ({ page }) => {
+  test.setTimeout(60_000)
+  await openPoolDive(page)
+
+  const stage = page.locator('.pool-dive-stage')
+  const prompt = await stage.getAttribute('data-pool-prompt')
+  expect(['left', 'center', 'right']).toContain(prompt)
+  const before = await page.evaluate(() => window.__STUDY_GAME_APP__.snapshot().position)
+
+  await page.keyboard.press(prompt === 'left' ? 'ArrowLeft' : prompt === 'right' ? 'ArrowRight' : 'ArrowDown')
+
+  await expect(page.locator('[data-pool-round]')).toContainText('2 / 8')
+  await page.waitForTimeout(150)
+  expect(await page.evaluate(() => window.__STUDY_GAME_APP__.snapshot().position)).toEqual(before)
+})

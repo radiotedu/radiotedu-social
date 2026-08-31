@@ -5,7 +5,7 @@ type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Respo
 type OriginLike = Pick<Location, 'origin'>
 
 const STUDY_API_BASE = '/jukebox/api/v1/study'
-const ALLOWED_API_PATH = /^\/jukebox\/api\/v1\/(?:study|economy)(?:\/|$)/
+const ALLOWED_API_PATH = /^\/jukebox\/api\/v1\/(?:study|economy|gamification)(?:\/|$)/
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 
 export type StudyWebBridge = Readonly<{

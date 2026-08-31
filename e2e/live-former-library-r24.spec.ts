@@ -50,7 +50,7 @@ test.beforeEach(async ({ page }) => {
 
 test('live release serves the former Library and seats from a real canvas click', async ({ page }, testInfo) => {
   fs.mkdirSync(OUTPUT, { recursive: true })
-  const mobile = testInfo.project.name === 'live-mobile-chromium'
+  const mobile = testInfo.project.use.hasTouch === true
 
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(error.message))

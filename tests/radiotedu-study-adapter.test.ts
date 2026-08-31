@@ -516,6 +516,99 @@ describe('RadioTEDUStudyAdapter', () => {
     expect(fetchImpl.mock.calls[1]![1].headers.Authorization).toBe('Bearer access-token')
   })
 
+  it('replays a lost Pool Dive action response with the exact same server nonce', async () => {
+    const requestNonce = 'request_nonce_'.padEnd(43, 'a')
+    const responseNonce = 'response_nonce_'.padEnd(43, 'b')
+    const fetchImpl = vi.fn()
+      .mockRejectedValueOnce(new TypeError('response lost after submit'))
+      .mockResolvedValueOnce(success({
+        result: { correct: true, validTiming: true, roundScore: 75, elapsedMs: 500, completedRound: 1 },
+        session: {
+          id: 'pool-dive-session-1',
+          status: 'active',
+          round: 2,
+          totalRounds: 8,
+          score: 75,
+          prompt: 'right',
+          nonce: responseNonce,
+          promptExpiresAt: '2026-08-30T08:00:04.000Z',
+          expiresAt: '2026-08-30T08:02:00.000Z',
+          final: false,
+        },
+      }))
+    const adapter = createAdapter(fetchImpl, 120, {
+      retryDelaysMs: [0],
+      sleep: async () => undefined,
+    })
+
+    await expect(adapter.playPoolDiveRound('pool-dive-session-1', requestNonce, 'left')).resolves.toMatchObject({
+      session: { round: 2, nonce: responseNonce },
+      result: { completedRound: 1, roundScore: 75 },
+    })
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    const requests = fetchImpl.mock.calls.map(([url, init]) => ({
+      url,
+      body: JSON.parse(init.body),
+    }))
+    expect(requests).toEqual([
+      {
+        url: 'https://radiotedu.com/jukebox/api/v1/gamification/social-arcade/pool-dive/sessions/pool-dive-session-1/action',
+        body: { nonce: requestNonce, choice: 'left' },
+      },
+      {
+        url: 'https://radiotedu.com/jukebox/api/v1/gamification/social-arcade/pool-dive/sessions/pool-dive-session-1/action',
+        body: { nonce: requestNonce, choice: 'left' },
+      },
+    ])
+  })
+
+  it('rejects malformed or non-authoritative final Pool Dive snapshots', async () => {
+    const authoritative = {
+      result: { correct: true, validTiming: true, roundScore: 75, elapsedMs: 500, completedRound: 8 },
+      session: {
+        id: 'pool-dive-session-1',
+        status: 'completed',
+        round: 8,
+        totalRounds: 8,
+        score: 600,
+        prompt: null,
+        nonce: null,
+        promptExpiresAt: null,
+        expiresAt: null,
+        final: true,
+      },
+      pointsAwarded: 8,
+      spendablePoints: 248,
+      verification: 'server-authoritative',
+    }
+    const invalidSnapshots = [
+      { ...authoritative, spendablePoints: 'not-a-number' },
+      { ...authoritative, spendablePoints: -1 },
+      { ...authoritative, verification: 'local-preview' },
+      { ...authoritative, verification: undefined },
+    ]
+
+    for (const snapshot of invalidSnapshots) {
+      const adapter = createAdapter(vi.fn().mockResolvedValueOnce(success(snapshot)))
+      await expect(adapter.playPoolDiveRound(
+        'pool-dive-session-1',
+        'request_nonce_'.padEnd(43, 'a'),
+        'center',
+      )).rejects.toThrow(/INVALID_SOCIAL_ARCADE_RESPONSE/)
+    }
+
+    const validAdapter = createAdapter(vi.fn().mockResolvedValueOnce(success(authoritative)))
+    await expect(validAdapter.playPoolDiveRound(
+      'pool-dive-session-1',
+      'request_nonce_'.padEnd(43, 'a'),
+      'center',
+    )).resolves.toMatchObject({
+      spendablePoints: 248,
+      verification: 'server-authoritative',
+    })
+  })
+
   it('loads and validates the authoritative study home and leaderboard', async () => {
     const leaderboard = [{
       rank: 1, userId: 'user-1', displayName: 'Ada', studySeconds: 21_600, streakDays: 8,

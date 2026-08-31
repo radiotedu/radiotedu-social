@@ -1271,7 +1271,7 @@ button { cursor: pointer; }
 .pool-splash i:nth-child(4) { transform: rotate(58deg) translateY(2px); }
 .pool-lanes { position: relative; z-index: 8; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
 .pool-lanes button { display: flex; min-height: 58px; padding: 7px; align-items: center; justify-content: center; flex-direction: column; gap: 4px; border: 1px solid #46736a; border-radius: 3px; color: #d6e7e1; background: #17332f; transition: border-color 120ms linear, color 120ms linear, background-color 120ms linear; }
-.pool-lanes button span { display: grid; width: 22px; height: 22px; place-items: center; border: 1px solid #668f82; border-radius: 50%; font: 900 8px Consolas, monospace; }
+.pool-lanes button span { display: grid; width: 28px; height: 28px; place-items: center; border: 2px solid #668f82; border-radius: 2px; background: #0f2522; box-shadow: inset 0 -3px rgba(0, 0, 0, .22); font: 900 14px Consolas, monospace; }
 .pool-lanes button b { font-size: 7px; letter-spacing: .7px; }
 .pool-lanes button:hover:not(:disabled),
 .pool-lanes button[data-target="true"] { border-color: #96e3c4; color: #0b221a; background: #7bc9a8; }
@@ -2494,7 +2494,7 @@ html[data-daily-focus-complete="true"] .study-mission { border-color: rgba(239, 
   outline: none;
 }
 .chat-dock input:focus { border-color: var(--hud-mint); box-shadow: 0 0 0 3px rgba(117, 224, 180, 0.08); }
-.chat-input-wrap small { position: absolute; right: 10px; bottom: 7px; color: #687d78; font-size: 7px; }
+.chat-input-wrap small { position: absolute; right: 10px; bottom: 7px; color: #9aafa9; font-size: 7px; }
 .chat-input-wrap small[data-near-limit="true"] { color: var(--hud-gold); }
 .chat-dock form > button {
   width: 46px;
@@ -3100,6 +3100,18 @@ html[data-daily-focus-complete="true"] .study-mission { border-color: rgba(239, 
 .action-dock {
   box-sizing: border-box;
 }
+
+.action-dock .seat-action {
+  border: 1px solid rgba(117, 224, 180, 0.55);
+  color: #f4fff9;
+  background: linear-gradient(180deg, rgba(42, 100, 81, 0.96), rgba(20, 55, 46, 0.96));
+}
+
+.seat-action[hidden] { display: none !important; }
+.seat-action:hover:not(:disabled),
+.seat-action:focus-visible { border-color: #d0ffeb; background: linear-gradient(180deg, #397c66, #245746); }
+.seat-action:focus-visible { outline: 3px solid rgba(255, 221, 112, 0.92); outline-offset: 2px; }
+.seat-action:disabled { cursor: wait; opacity: 0.68; }
 
 @media (max-height: 420px) {
   .action-dock {
@@ -3839,7 +3851,7 @@ html[data-daily-focus-complete="true"] .study-mission { border-color: rgba(239, 
 @media (max-width: 700px) {
   .action-dock {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     left: 50%;
     right: auto;
     width: min(340px, calc(100vw - 12px));
@@ -3850,6 +3862,7 @@ html[data-daily-focus-complete="true"] .study-mission { border-color: rgba(239, 
   }
 
   .action-dock #navigator-toggle,
+  .action-dock #seat-action,
   .action-dock #chat-toggle,
   .action-dock #people-toggle,
   .action-dock #wardrobe-toggle,
@@ -4525,4 +4538,101 @@ html[data-daily-focus-complete="true"] .study-mission { border-color: rgba(239, 
 
 @media (prefers-reduced-motion: reduce) {
   .deep-dive-launch::after { animation: none; }
+}
+
+/* A compact mobile movement pad reuses the scene's existing navigation graph.
+   It is presentation-only: no new API choice or client-authoritative movement. */
+.movement-dpad { display: none; }
+
+@media (max-width: 700px) {
+  .movement-dpad {
+    position: absolute;
+    z-index: 24;
+    bottom: max(76px, calc(env(safe-area-inset-bottom) + 76px));
+    left: max(8px, env(safe-area-inset-left));
+    display: grid;
+    width: 140px;
+    height: 140px;
+    grid-template-areas:
+      ". up ."
+      "left center right"
+      ". down .";
+    grid-template-columns: repeat(3, 44px);
+    grid-template-rows: repeat(3, 44px);
+    gap: 4px;
+    pointer-events: none;
+  }
+
+  .movement-dpad button {
+    display: grid;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    place-items: center;
+    border: 2px solid #46635c;
+    border-radius: 2px;
+    color: #ecfff7;
+    background: linear-gradient(180deg, rgba(45, 76, 68, .97), rgba(22, 42, 38, .98));
+    box-shadow: inset 0 -4px rgba(0, 0, 0, .24), 0 3px 0 rgba(0, 0, 0, .34);
+    pointer-events: auto;
+    touch-action: manipulation;
+  }
+
+  .movement-dpad button:active {
+    transform: translateY(2px);
+    box-shadow: inset 0 -2px rgba(0, 0, 0, .24), 0 1px 0 rgba(0, 0, 0, .34);
+  }
+
+  .movement-dpad button:focus-visible {
+    border-color: #e8cc66;
+    outline: 2px solid #e8cc66;
+    outline-offset: 2px;
+  }
+
+  .movement-dpad button span { font: 900 22px/1 Consolas, monospace; }
+  .movement-dpad-up { grid-area: up; }
+  .movement-dpad-left { grid-area: left; }
+  .movement-dpad-right { grid-area: right; }
+  .movement-dpad-down { grid-area: down; }
+  .movement-dpad-center {
+    grid-area: center;
+    width: 14px;
+    height: 14px;
+    place-self: center;
+    border: 2px solid #344d47;
+    background: #152825;
+  }
+
+  html:not([data-hud-panel="closed"]) .movement-dpad,
+  .room-arrival.is-showing ~ .movement-dpad,
+  #deep-dive-launch:not([hidden]) + .movement-dpad { display: none; }
+}
+
+/* HUD accessibility: keep the existing compact visual language while making
+   every interactive sheet control reliably touchable on narrow screens. */
+@media (max-width: 700px) {
+  .hud-sheet :is(button, a[href], input:not([type="checkbox"]):not([type="radio"]), select, summary, [role="button"]) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .hud-sheet {
+    right: max(6px, env(safe-area-inset-right));
+    bottom: max(72px, calc(env(safe-area-inset-bottom) + 72px));
+    left: max(6px, env(safe-area-inset-left));
+  }
+}
+
+@media (max-height: 420px) and (orientation: landscape) {
+  .action-dock,
+  .hud-sheet {
+    right: max(6px, env(safe-area-inset-right));
+    bottom: max(6px, env(safe-area-inset-bottom));
+  }
+
+  .hud-sheet {
+    max-height: calc(100dvh - max(12px, calc(env(safe-area-inset-top) + env(safe-area-inset-bottom) + 12px)));
+  }
 }

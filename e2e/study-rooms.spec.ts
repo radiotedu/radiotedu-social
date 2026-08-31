@@ -10,6 +10,70 @@ test.beforeAll(async () => {
   await mkdir(artifactDir, { recursive: true })
 })
 
+test('budgets initial room requests and lazy-renders the next room', async ({ page }) => {
+  test.setTimeout(60_000)
+  const pngRequests = new Set<string>()
+  const runtimeErrors: string[] = []
+  page.on('request', (request) => {
+    const pathname = new URL(request.url()).pathname
+    if (pathname.endsWith('.png')) pngRequests.add(pathname)
+  })
+  page.on('pageerror', (error) => runtimeErrors.push(error.message))
+  page.on('console', (message) => {
+    if (message.type() === 'error') runtimeErrors.push(message.text())
+  })
+
+  await page.goto('/?room=library')
+  await expect(page.locator('html')).toHaveAttribute('data-study-ready', 'true', { timeout: 30_000 })
+  // Replace the room while a cat tween is active so texture teardown is exercised.
+  await expect.poll(
+    () => page.evaluate(() => window.__STUDY_GAME_APP__.snapshot().cats.some((cat) => cat.walking)),
+    { timeout: 10_000 },
+  ).toBe(true)
+
+  const inactiveWorldAssets = [
+    '/assets/rooms/tedu-swimming-pool-wide-r2.png',
+    '/assets/rooms/tedu-computer-lab-wide-r4-small-computers.png',
+    '/assets/rooms/occlusion/grass-amphitheatre/object-amphi-row-front-1.png',
+    '/assets/npcs/campus-cat-benek-walk.png',
+    '/assets/npcs/campus-cat-komur-walk.png',
+  ]
+  expect(pngRequests.has('/assets/rooms/library-wide.png')).toBe(true)
+  expect(inactiveWorldAssets.filter((url) => pngRequests.has(url))).toEqual([])
+  expect(pngRequests.size).toBeLessThanOrEqual(124)
+  const initialTextureKeys = (await page.evaluate(() => window.__STUDY_GAME_APP__.snapshot())).loadedRoomTextureKeys
+  expect(initialTextureKeys).toHaveLength(60)
+  expect(initialTextureKeys).toContain('room:library')
+  expect(initialTextureKeys.every((key) => (
+    key === 'room:library'
+      || key === 'campus-cat:0'
+      || key.startsWith('occluder:library:')
+      || key.startsWith('seat-foreground:library:')
+  ))).toBe(true)
+
+  await page.evaluate(() => window.__STUDY_GAME_APP__.switchRoom('sports-center'))
+  await expect(page.locator('html')).toHaveAttribute('data-room-id', 'sports-center')
+  await expect(page.locator('html')).toHaveAttribute('data-pool-dive-station', 'ready')
+
+  const snapshot = await page.evaluate(() => window.__STUDY_GAME_APP__.snapshot())
+  expect(snapshot.roomId).toBe('sports-center')
+  expect(pngRequests.has('/assets/rooms/tedu-swimming-pool-wide-r2.png')).toBe(true)
+  expect(snapshot.loadedRoomTextureKeys).toContain('room:sports-center')
+  expect(snapshot.loadedRoomTextureKeys).not.toContain('room:library')
+  expect(snapshot.loadedRoomTextureKeys.every((key) => (
+    key === 'room:sports-center'
+      || key === 'campus-cat:1'
+      || key.startsWith('occluder:sports-center:')
+      || key.startsWith('seat-foreground:sports-center:')
+  ))).toBe(true)
+  const rendered = await sharp(await page.locator('#game-canvas canvas').screenshot()).stats()
+  expect(rendered.channels.slice(0, 3).some((channel) => channel.stdev > 25)).toBe(true)
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  }))
+  expect(runtimeErrors).toEqual([])
+})
+
 test('plays the two exact user-supplied rooms with persistent wardrobe and elevated sitting', async ({ page }, testInfo) => {
   test.setTimeout(120_000)
   const errors: string[] = []
@@ -185,6 +249,7 @@ test('runs a seated Study timer and supports player interactions from the HUD', 
   await page.getByRole('tab', { name: 'Çim Alan' }).click()
   await expect(page.getByTestId('player-card')).toBeHidden()
   await page.getByRole('tab', { name: 'Library' }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-room-id', 'library')
   await page.getByTestId('people-toggle').click()
 
   await page.evaluate(() => window.__STUDY_GAME_APP__.walkToSeat('front-left'))

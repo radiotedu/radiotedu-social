@@ -104,10 +104,10 @@ export const CURATED_CAMPUS_ROOMS: Readonly<Record<CuratedRoomId, ImageRoomDefin
     title: 'TEDU Computer Lab',
     spawnNodeId: 'entrance',
     image: {
-      url: 'assets/rooms/tedu-computer-lab-wide-r3.png',
+    url: 'assets/rooms/tedu-computer-lab-wide-r4-small-computers.png',
       width: 1672,
       height: 941,
-      sha256: 'bfe6dbd97368a088aba8ef558de4059d17c1bdf287bd61296d58b40e68651f50',
+      sha256: '2b6c33d42727b9ae580d35bbf38595c7e4af72c783cb360e4a71f0c2342abbff',
     },
     nodes: [
       { id: 'entrance', x: 10, y: 78, z: 0 },

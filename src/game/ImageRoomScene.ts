@@ -14,7 +14,6 @@ import { NavigationGraph } from '../pathfinding/NavigationGraph'
 import { pointInPolygon, RoomNavigationField, type WorldPoint } from '../pathfinding/RoomNavigationField'
 import { STUDY_RADIO_CHANNELS, type StudyRadioChannelId } from '../radio/StudyRadioChannels'
 import { IMAGE_ROOMS, roomPointToPixel, type ImageRoomDefinition, type ImageRoomId, type ImageRoomSeat } from '../rooms/ImageRoomDefinition'
-import { AUDITORIUM_RADIOTEDU_SCREEN } from '../rooms/AuditoriumPresentation'
 import { libraryDeviceSocket } from '../rooms/LibrarySeatCalibration'
 import { roomCatPatrolPoints } from '../rooms/RoomCatPatrols'
 import { roomAvatarScale } from '../rooms/RoomAvatarPresentation'
@@ -22,37 +21,40 @@ import { roomInteractionObstacles, roomNavigationGeometry } from '../rooms/RoomN
 import { resolveSeatGeometry } from '../rooms/RoomSeatGeometry'
 import type { StudySessionTracker } from '../session/StudySessionTracker'
 import { StudyPresenceLoop } from '../session/StudyPresenceLoop'
+import { shouldIgnoreWorldMovementKey } from '../ui/HudPanelState'
 import { AvatarController } from './AvatarController'
 import { AvatarActivityMachine, type ActivityToken } from './AvatarActivityMachine'
 import { calculateOverviewZoom, calculatePlayableZoom, cameraFramingMode } from './CameraFraming'
 import { imageRoomActorDepth } from './ImageRoomDepth'
+import { resolveNearestAvailableSeat } from './NearestSeatResolver'
 import { buildMotionPath, sampleMotionPathAtTime, walkFrameAtDistance } from './PathMotion'
 import { ROOM_AMBIENCE } from './RoomAmbience'
+import {
+  campusCatTextureAsset,
+  campusCatVariantForPet,
+  campusCatVariantsForRoom,
+  isRoomTextureKey,
+  roomTextureAssets,
+  type CampusCatVariant,
+  type RoomTextureAsset,
+} from './RoomAssetPlan'
 import { SeatReservationBook } from './SeatReservationBook'
 import { resolveSeatHitTarget, resolveTouchIntent, type TouchWorldPoint } from './TouchIntentResolver'
 
 const ACTION_FRAMES: Record<AvatarAction, number> = { idle: 4, walk: 4, sit: 4, stand: 3 }
 const RENDERED_LAYERS: AvatarLayerSlot[] = ['body', 'skin', 'hair', 'top', 'bottom', 'shoes', 'hat']
 const ASSET_BASE = `${import.meta.env.BASE_URL}assets/avatars/engine-proof`
-const CAMPUS_CAT_ASSETS = ['campus-cat-tarcin-walk.png', 'campus-cat-benek-walk.png', 'campus-cat-komur-walk.png'] as const
-const ROOM_BASE = import.meta.env.BASE_URL
 const SUPPORTED_ITEMS = ['short-hair', 'radio-hoodie', 'radiotedu-tee', 'varsity-jacket', 'jeans', 'black-cargos', 'sneakers', 'boots', 'bucket-hat', 'beanie'] as const
 const AVATAR_WALK_SPEED = 280
 const AVATAR_WALK_STRIDE = 18
 const CAMPUS_CAT_PAW_BASELINE = 184 / 192
 const CAMPUS_CAT_SCALE = 0.21
 const CAMPUS_CAT_SHADOW = Object.freeze({ width: 28, height: 8 })
-type CampusCatVariant = 0 | 1 | 2
 const MOUSE_SEAT_HIT_SLOP_PX = 10
 const TOUCH_SEAT_HIT_SLOP_PX = 18
-const CAMPUS_CAT_ROSTERS: Readonly<Record<ImageRoomId, readonly CampusCatVariant[]>> = Object.freeze({
-  library: [0],
-  'chim-alan': [1, 2],
-  'grass-amphitheatre': [0, 2],
-  'sports-center': [1],
-  auditorium: [0],
-  'learning-lab': [2],
-})
+const REMOTE_AVATAR_SPEED_PX_PER_SECOND = 180
+const REMOTE_AVATAR_MIN_TWEEN_MS = 260
+const REMOTE_AVATAR_MAX_TWEEN_MS = 3_500
 
 type CampusCat = {
   name: typeof CAMPUS_CAT_DISPLAY_NAME
@@ -64,6 +66,8 @@ type CampusCat = {
   z: number
   walking: boolean
   frame: number
+  wanderEvent: Phaser.Time.TimerEvent | null
+  wanderTween: Phaser.Tweens.Tween | null
 }
 
 type GameState = 'ready' | 'walking' | 'stair' | 'sitting' | 'seated' | 'standing' | 'spark' | 'rock'
@@ -184,6 +188,10 @@ export class ImageRoomScene extends Phaser.Scene {
   #avatarController!: AvatarController
   #wardrobe!: WardrobeController
   #wearableOperations = new Map<string, Promise<void>>()
+  #seatActionBusy = false
+  #seatActionPending: 'sit' | 'stand' | null = null
+  #assetLoadQueue: Promise<void> = Promise.resolve()
+  #activeRoomTextureKeys = new Set<string>()
   #roomObjects: Phaser.GameObjects.GameObject[] = []
   #seatForegroundObjects: Phaser.GameObjects.GameObject[] = []
   #seatActorMaskSource: Phaser.GameObjects.Graphics | null = null
@@ -192,6 +200,7 @@ export class ImageRoomScene extends Phaser.Scene {
   #avatarAnimationEvent: Phaser.Time.TimerEvent | null = null
   #avatarAnimationFrame = 0
   #socialObjects: Phaser.GameObjects.GameObject[] = []
+  #socialActorsByUserId = new Map<string, Phaser.GameObjects.Container>()
   #campusCats: CampusCat[] = []
   #chatBubbles = new Map<string, Phaser.GameObjects.Container>()
   #auditoriumScreenEvent: Phaser.Time.TimerEvent | null = null
@@ -201,6 +210,8 @@ export class ImageRoomScene extends Phaser.Scene {
   #lastWalkTarget: WorldPoint | null = null
   #poolDiveRequestPending = false
   #keyboardHandler = (event: KeyboardEvent): void => {
+    if (shouldIgnoreWorldMovementKey(event.defaultPrevented, document.documentElement.dataset.hudPanel)) return
+
     const target = event.target
     // Closing a HUD sheet returns focus to its button. Keep WASD available
     // there, while never stealing keys from fields where players type.
@@ -208,6 +219,13 @@ export class ImageRoomScene extends Phaser.Scene {
       target.isContentEditable
       || target.matches('input, textarea, select')
     )) return
+
+    if (event.key.toLowerCase() === 'e') {
+      if (event.repeat || this.#seatActionBusy) return
+      event.preventDefault()
+      void this.#performSeatAction()
+      return
+    }
 
     const direction = new Map<string, { x: number; y: number }>([
       ['arrowup', { x: 0, y: -1 }],
@@ -237,13 +255,18 @@ export class ImageRoomScene extends Phaser.Scene {
   #gearChangedHandler = (): void => {
     this.#syncStudyDevice()
     const selected = studyGear.snapshot().equipped.pet
-    const selectedIndex: CampusCatVariant = selected === 'pet-benek' ? 1 : selected === 'pet-komur' ? 2 : 0
+    const selectedIndex = campusCatVariantForPet(selected)
     const cat = this.#campusCats[0]
     if (cat && selected) {
-      cat.name = CAMPUS_CAT_DISPLAY_NAME
-      cat.variant = selectedIndex
-      cat.sprite.setTexture(`campus-cat:${selectedIndex}`)
-      cat.sprite.setData('campusCatName', cat.name)
+      const texture = campusCatTextureAsset(selectedIndex)
+      void this.#ensureTextureAssets([texture]).then(() => {
+        if (!cat.sprite.active || this.#campusCats[0] !== cat || studyGear.snapshot().equipped.pet !== selected) return
+        cat.name = CAMPUS_CAT_DISPLAY_NAME
+        cat.variant = selectedIndex
+        cat.sprite.setTexture(texture.key)
+        cat.sprite.setData('campusCatName', cat.name)
+        this.#activeRoomTextureKeys.add(texture.key)
+      }).catch(() => undefined)
     }
   }
   #poolDiveRequestHandler = (): void => {
@@ -277,28 +300,11 @@ export class ImageRoomScene extends Phaser.Scene {
   }
 
   preload(): void {
-    this.load.image(
-      'auditorium:radiotedu-screen',
-      `${import.meta.env.BASE_URL}${AUDITORIUM_RADIOTEDU_SCREEN.url}`,
-    )
-    CAMPUS_CAT_ASSETS.forEach((asset, index) => {
-      this.load.spritesheet(`campus-cat:${index}`, `${import.meta.env.BASE_URL}assets/npcs/${asset}`, {
-        frameWidth: 256,
-        frameHeight: 192,
-        endFrame: 31,
-      })
-    })
-    for (const room of Object.values(IMAGE_ROOMS)) {
-      this.load.image(`room:${room.id}`, `${ROOM_BASE}${room.image.url}`)
-      for (const occluder of room.occluders) {
-        this.load.image(`occluder:${room.id}:${occluder.id}`, `${ROOM_BASE}${occluder.asset.url}`)
-      }
-      for (const seat of room.seats) {
-        if (seat.foregroundAsset) {
-          this.load.image(`seat-foreground:${room.id}:${seat.id}`, `${ROOM_BASE}${seat.foregroundAsset.url}`)
-        }
-      }
+    const initialRoomAssets = roomTextureAssets(this.#initialRoom, studyGear.snapshot().equipped.pet)
+    for (const asset of initialRoomAssets) {
+      this.#queueTextureAsset(asset)
     }
+    this.#activeRoomTextureKeys = new Set(initialRoomAssets.map((asset) => asset.key))
     for (const laptop of ['laptop-campus', 'laptop-pro', 'laptop-gold'] as const) {
       this.load.image(`study-device:${laptop}:far`, `${import.meta.env.BASE_URL}assets/study-gear/items/${laptop}-table-back-v3.png`)
       this.load.image(`study-device:${laptop}:near`, `${import.meta.env.BASE_URL}assets/study-gear/items/${laptop}-table-front-v3.png`)
@@ -326,6 +332,60 @@ export class ImageRoomScene extends Phaser.Scene {
         }
       }
     }
+  }
+
+  #queueTextureAsset(asset: RoomTextureAsset): void {
+    if (asset.kind === 'spritesheet') {
+      this.load.spritesheet(asset.key, asset.url, {
+        frameWidth: asset.frameWidth,
+        frameHeight: asset.frameHeight,
+        endFrame: asset.endFrame,
+      })
+      return
+    }
+    this.load.image(asset.key, asset.url)
+  }
+
+  #ensureTextureAssets(assets: readonly RoomTextureAsset[]): Promise<void> {
+    const operation = this.#assetLoadQueue.then(() => this.#loadMissingTextureAssets(assets))
+    this.#assetLoadQueue = operation.catch(() => undefined)
+    return operation
+  }
+
+  #loadMissingTextureAssets(assets: readonly RoomTextureAsset[]): Promise<void> {
+    const missing = assets.filter((asset) => !this.textures.exists(asset.key))
+    if (missing.length === 0) return Promise.resolve()
+
+    return new Promise((resolve, reject) => {
+      const requestedKeys = new Set(missing.map((asset) => asset.key))
+      const failedKeys: string[] = []
+      const onLoadError = (file: Phaser.Loader.File) => {
+        if (requestedKeys.has(file.key)) failedKeys.push(file.key)
+      }
+      const onComplete = () => {
+        this.load.off(Phaser.Loader.Events.FILE_LOAD_ERROR, onLoadError)
+        if (failedKeys.length === 0) {
+          resolve()
+          return
+        }
+        for (const asset of missing) {
+          if (this.textures.exists(asset.key)) this.textures.remove(asset.key)
+        }
+        reject(new Error(`ROOM_ASSET_LOAD_FAILED:${failedKeys.join(',')}`))
+      }
+      this.load.on(Phaser.Loader.Events.FILE_LOAD_ERROR, onLoadError)
+      this.load.once(Phaser.Loader.Events.COMPLETE, onComplete)
+      for (const asset of missing) this.#queueTextureAsset(asset)
+      this.load.start()
+    })
+  }
+
+  #releaseObsoleteRoomTextures(nextAssets: readonly RoomTextureAsset[]): void {
+    const nextKeys = new Set(nextAssets.map((asset) => asset.key))
+    for (const key of this.#activeRoomTextureKeys) {
+      if (!nextKeys.has(key) && this.textures.exists(key)) this.textures.remove(key)
+    }
+    this.#activeRoomTextureKeys = nextKeys
   }
 
   create(): void {
@@ -436,11 +496,20 @@ export class ImageRoomScene extends Phaser.Scene {
     this.#auditoriumScreenEvent?.remove(false)
     this.#auditoriumScreenEvent = null
     delete document.documentElement.dataset.auditoriumScreen
+    for (const cat of this.#campusCats) {
+      cat.wanderEvent?.remove(false)
+      cat.wanderEvent = null
+      cat.wanderTween?.stop()
+      cat.wanderTween = null
+      cat.walking = false
+    }
     this.tweens.killTweensOf(this.#roomObjects)
+    this.tweens.killTweensOf(this.#socialObjects)
     for (const object of [...this.#roomObjects, ...this.#seatForegroundObjects, ...this.#socialObjects]) object.destroy()
     this.#roomObjects = []
     this.#seatForegroundObjects = []
     this.#socialObjects = []
+    this.#socialActorsByUserId.clear()
     this.#campusCats = []
     if (this.#studyDeviceGlow) this.tweens.killTweensOf(this.#studyDeviceGlow)
     this.#studyDevice?.destroy()
@@ -713,10 +782,7 @@ export class ImageRoomScene extends Phaser.Scene {
       this.#catNavigationField.isWalkable(point, point.z)
     ))
     const equippedPet = studyGear.snapshot().equipped.pet
-    const equippedVariant: CampusCatVariant = equippedPet === 'pet-benek' ? 1
-      : equippedPet === 'pet-komur' ? 2
-      : 0
-    const roster = this.#roomId === 'library' && equippedPet ? [equippedVariant] : CAMPUS_CAT_ROSTERS[this.#roomId]
+    const roster = campusCatVariantsForRoom(this.#roomId, equippedPet)
     const count = Math.min(roster.length, available.length)
     const remaining = [...available]
 
@@ -742,7 +808,19 @@ export class ImageRoomScene extends Phaser.Scene {
         .setScale(CAMPUS_CAT_SCALE)
         .setDepth(depth + 45)
         .setInteractive({ useHandCursor: true })
-      const cat: CampusCat = { name, variant, nodeId: node.id, roomId: this.#roomId, sprite, shadow, z: node.z, walking: false, frame: 0 }
+      const cat: CampusCat = {
+        name,
+        variant,
+        nodeId: node.id,
+        roomId: this.#roomId,
+        sprite,
+        shadow,
+        z: node.z,
+        walking: false,
+        frame: 0,
+        wanderEvent: null,
+        wanderTween: null,
+      }
       sprite.setData('campusCatName', name)
       sprite.on('pointerdown', (
         pointer: Phaser.Input.Pointer,
@@ -764,7 +842,9 @@ export class ImageRoomScene extends Phaser.Scene {
   }
 
   #scheduleCampusCatWander(cat: CampusCat, delay = Phaser.Math.Between(3_800, 7_500)): void {
-    this.time.delayedCall(delay, () => {
+    cat.wanderEvent?.remove(false)
+    cat.wanderEvent = this.time.delayedCall(delay, () => {
+      cat.wanderEvent = null
       void this.#startCampusCatWander(cat)
     })
   }
@@ -775,9 +855,11 @@ export class ImageRoomScene extends Phaser.Scene {
     const navigationField = this.#catNavigationField
     const shouldContinue = () => (
       cat.sprite.active
+      && cat.shadow.active
       && cat.roomId === this.#roomId
       && this.#roomId === roomId
       && this.#catNavigationField === navigationField
+      && this.textures.exists(`campus-cat:${cat.variant}`)
     )
     const occupiedSeats = new Set(this.#adapter.presence(roomId).flatMap((presence) => (
       presence.seatId ? [presence.seatId] : []
@@ -823,12 +905,18 @@ export class ImageRoomScene extends Phaser.Scene {
     const duration = (motion.totalLength / speed) * 1_000
     const travel = { elapsedMs: 0 }
     cat.walking = true
-    this.tweens.add({
+    cat.wanderTween = this.tweens.add({
       targets: travel,
       elapsedMs: duration,
       duration,
       ease: 'Linear',
-      onUpdate: () => {
+      onUpdate: (tween) => {
+        if (!shouldContinue()) {
+          tween.stop()
+          cat.wanderTween = null
+          cat.walking = false
+          return
+        }
         const sample = sampleMotionPathAtTime(motion, travel.elapsedMs, speed)
         const direction = directionForVector(sample.direction)
         cat.frame = DIRECTIONS.indexOf(direction) * 4 + walkFrameAtDistance(sample.distance, 4, 22)
@@ -839,6 +927,11 @@ export class ImageRoomScene extends Phaser.Scene {
         cat.sprite.setDepth(depth + 45)
       },
       onComplete: () => {
+        cat.wanderTween = null
+        if (!shouldContinue()) {
+          cat.walking = false
+          return
+        }
         cat.nodeId = target.id
         cat.walking = false
         this.#scheduleCampusCatWander(cat)
@@ -979,9 +1072,41 @@ export class ImageRoomScene extends Phaser.Scene {
     document.documentElement.dataset.poolDiveStation = 'ready'
   }
 
+  #setSocialActorAction(
+    container: Phaser.GameObjects.Container,
+    action: AvatarAction,
+    direction: Direction8,
+    seated: boolean,
+    frame = 0,
+  ): void {
+    const directionIndex = DIRECTIONS.indexOf(direction)
+    const sheetFrame = directionIndex * ACTION_FRAMES[action] + (frame % ACTION_FRAMES[action])
+    const layerTextures: string[] = []
+    for (const child of container.list) {
+      if (child instanceof Phaser.GameObjects.Sprite) {
+        const nextTexture = child.texture.key.replace(/-(idle|walk|sit|stand)$/, `-${action}`)
+        if (this.textures.exists(nextTexture)) child.setTexture(nextTexture)
+        child.setOrigin(0.5, seated ? 1 : 0.88).setFrame(sheetFrame)
+        layerTextures.push(child.texture.key)
+      } else if (child instanceof Phaser.GameObjects.Ellipse) {
+        child.setVisible(!seated)
+      } else if (child instanceof Phaser.GameObjects.Text) {
+        child.setY(seated ? -92 : -86)
+      }
+    }
+    container
+      .setData('avatarAction', action)
+      .setData('avatarDirectionIndex', directionIndex)
+      .setData('avatarLayerTextures', layerTextures)
+  }
+
   #createSocialActors(): void {
-    for (const object of this.#socialObjects) object.destroy()
-    this.#socialObjects = []
+    const actorContainers = this.#socialObjects.filter((object) => object instanceof Phaser.GameObjects.Container && object.getData('avatarUserId'))
+    for (const object of this.#socialObjects) {
+      if (!actorContainers.includes(object)) object.destroy()
+    }
+    this.#socialObjects = actorContainers
+    const activeUserIds = new Set<string>()
     for (const presence of this.#adapter.presence(this.#roomId)) {
       const seat = presence.seatId ? this.#room.seats.find((candidate) => candidate.id === presence.seatId) ?? null : null
       const node = this.#graph.node(presence.nodeId)
@@ -989,49 +1114,119 @@ export class ImageRoomScene extends Phaser.Scene {
         ? resolveSeatGeometry(this.#room, seat).actorAnchor
         : presence.position ?? node
       if (!anchor) continue
-      const action: AvatarAction = seat ? 'sit' : 'idle'
-      const direction = seat?.facing ?? 's'
+      activeUserIds.add(presence.userId)
+      const finalAction: AvatarAction = seat ? 'sit' : 'idle'
+      const finalDirection = seat?.facing ?? 's'
       const appearance = appearanceForPresence(presence)
+      const appearanceKey = JSON.stringify(appearance)
       const pixel = roomPointToPixel(this.#room, anchor)
       const depth = seat ? anchor.y * 100 + 12 : imageRoomActorDepth({ y: anchor.y, z: node?.z ?? 0 }, 12)
-      const container = this.add.container(pixel.x, pixel.y)
-        .setDepth(depth)
-        .setScale(roomAvatarScale(this.#roomId, anchor.y, Boolean(seat), seat?.id ?? null))
-        .setData('avatarAction', action)
-        .setData('avatarDirectionIndex', DIRECTIONS.indexOf(direction))
-      const shadow = this.add.ellipse(0, 5, 34, 11, 0x020609, 0.35)
-      shadow.setVisible(!seat)
-      const layers: Phaser.GameObjects.Sprite[] = []
-      const sheetFrame = DIRECTIONS.indexOf(direction) * ACTION_FRAMES[action]
-      if (shouldUseCanonicalAvatar(appearance)) {
-        layers.push(this.add.sprite(0, 0, canonicalAvatarTextureKey(action)).setOrigin(0.5, seat ? 1 : 0.88).setFrame(sheetFrame))
+      let container = this.#socialActorsByUserId.get(presence.userId)
+      if (container && container.getData('avatarAppearanceKey') !== appearanceKey) {
+        this.tweens.killTweensOf(container)
+        container.destroy()
+        this.#socialActorsByUserId.delete(presence.userId)
+        this.#socialObjects = this.#socialObjects.filter((object) => object !== container)
+        container = undefined
+      }
+
+      if (!container) {
+        const action = finalAction
+        const direction = finalDirection
+        container = this.add.container(pixel.x, pixel.y)
+          .setDepth(depth)
+          .setScale(roomAvatarScale(this.#roomId, anchor.y, Boolean(seat), seat?.id ?? null))
+          .setData('avatarAction', action)
+          .setData('avatarDirectionIndex', DIRECTIONS.indexOf(direction))
+        const shadow = this.add.ellipse(0, 5, 34, 11, 0x020609, 0.35)
+        shadow.setVisible(!seat)
+        const layers: Phaser.GameObjects.Sprite[] = []
+        const sheetFrame = DIRECTIONS.indexOf(direction) * ACTION_FRAMES[action]
+        if (shouldUseCanonicalAvatar(appearance)) {
+          layers.push(this.add.sprite(0, 0, canonicalAvatarTextureKey(action)).setOrigin(0.5, seat ? 1 : 0.88).setFrame(sheetFrame))
+        } else {
+          for (const layer of RENDERED_LAYERS) {
+            const key = textureKey(layer, action, appearance)
+            if (!key) continue
+            const sprite = this.add.sprite(0, 0, key).setOrigin(0.5, seat ? 1 : 0.88).setFrame(sheetFrame)
+            if (layer === 'top' && !(presence.equippedWearableIds?.length)) sprite.setTint(presence.color)
+            layers.push(sprite)
+          }
+        }
+        const name = this.add.text(0, seat ? -92 : -86, presence.displayName, {
+          color: '#ffffff', fontFamily: 'Segoe UI, sans-serif', fontSize: '11px', fontStyle: 'bold',
+          stroke: '#07110f', strokeThickness: 2,
+          backgroundColor: '#152126e8', padding: { x: 5, y: 3 },
+        }).setOrigin(0.5).setResolution(2)
+        container
+          .setData('avatarUserId', presence.userId)
+          .setData('avatarDisplayName', presence.displayName)
+          .setData('avatarAppearance', { ...appearance })
+          .setData('avatarAppearanceKey', appearanceKey)
+          .setData('avatarPresence', presence)
+          .setData('avatarRoomY', anchor.y)
+          .setData('avatarSeatId', seat?.id ?? null)
+          .setData('avatarLayerTextures', layers.map((sprite) => sprite.texture.key))
+        container.add([shadow, ...layers, name]).setSize(72, 100).setInteractive({ useHandCursor: true })
+        container.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+          const target = pointer.event.target
+          if (target instanceof Element && target.closest('[data-study-ui]')) return
+          pointer.event.stopPropagation()
+          window.dispatchEvent(new CustomEvent('radiotedu:study-player-selected', { detail: { presence: container?.getData('avatarPresence') } }))
+        })
+        this.#socialActorsByUserId.set(presence.userId, container)
+        this.#socialObjects.push(container)
       } else {
-        for (const layer of RENDERED_LAYERS) {
-          const key = textureKey(layer, action, appearance)
-          if (!key) continue
-          const sprite = this.add.sprite(0, 0, key).setOrigin(0.5, seat ? 1 : 0.88).setFrame(sheetFrame)
-          if (layer === 'top' && !(presence.equippedWearableIds?.length)) sprite.setTint(presence.color)
-          layers.push(sprite)
+        const name = container.list.find((child) => child instanceof Phaser.GameObjects.Text) as Phaser.GameObjects.Text | undefined
+        name?.setText(presence.displayName)
+        container
+          .setData('avatarDisplayName', presence.displayName)
+          .setData('avatarPresence', presence)
+          .setData('avatarSeatId', seat?.id ?? null)
+
+        this.tweens.killTweensOf(container)
+        const startX = container.x
+        const startY = container.y
+        const startRoomY = Number(container.getData('avatarRoomY') ?? anchor.y)
+        const distance = Math.hypot(pixel.x - startX, pixel.y - startY)
+        const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+        if (distance > 1 && !reducedMotion) {
+          const direction = directionForVector({ x: pixel.x - startX, y: pixel.y - startY })
+          const duration = Phaser.Math.Clamp(
+            (distance / REMOTE_AVATAR_SPEED_PX_PER_SECOND) * 1_000,
+            REMOTE_AVATAR_MIN_TWEEN_MS,
+            REMOTE_AVATAR_MAX_TWEEN_MS,
+          )
+          this.#setSocialActorAction(container, 'walk', direction, false)
+          this.tweens.add({
+            targets: container,
+            x: pixel.x,
+            y: pixel.y,
+            duration,
+            ease: 'Linear',
+            onUpdate: (tween) => {
+              const progress = tween.progress
+              const roomY = Phaser.Math.Linear(startRoomY, anchor.y, progress)
+              container?.setData('avatarRoomY', roomY)
+                .setDepth(imageRoomActorDepth({ y: roomY, z: node?.z ?? 0 }, 12))
+                .setScale(roomAvatarScale(this.#roomId, roomY, false, null))
+              this.#setSocialActorAction(container!, 'walk', direction, false, Math.floor(tween.elapsed / 140))
+            },
+            onComplete: () => {
+              container?.setData('avatarRoomY', anchor.y)
+                .setDepth(depth)
+                .setScale(roomAvatarScale(this.#roomId, anchor.y, Boolean(seat), seat?.id ?? null))
+              if (container) this.#setSocialActorAction(container, finalAction, finalDirection, Boolean(seat))
+            },
+          })
+        } else {
+          container.setPosition(pixel.x, pixel.y)
+            .setDepth(depth)
+            .setScale(roomAvatarScale(this.#roomId, anchor.y, Boolean(seat), seat?.id ?? null))
+            .setData('avatarRoomY', anchor.y)
+          this.#setSocialActorAction(container, finalAction, finalDirection, Boolean(seat))
         }
       }
-      const name = this.add.text(0, seat ? -92 : -86, presence.displayName, {
-        color: '#ffffff', fontFamily: 'Segoe UI, sans-serif', fontSize: '11px', fontStyle: 'bold',
-        stroke: '#07110f', strokeThickness: 2,
-        backgroundColor: '#152126e8', padding: { x: 5, y: 3 },
-      }).setOrigin(0.5).setResolution(2)
-      container
-        .setData('avatarUserId', presence.userId)
-        .setData('avatarDisplayName', presence.displayName)
-        .setData('avatarAppearance', { ...appearance })
-        .setData('avatarLayerTextures', layers.map((sprite) => sprite.texture.key))
-      container.add([shadow, ...layers, name]).setSize(72, 100).setInteractive({ useHandCursor: true })
-      container.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-        const target = pointer.event.target
-        if (target instanceof Element && target.closest('[data-study-ui]')) return
-        pointer.event.stopPropagation()
-        window.dispatchEvent(new CustomEvent('radiotedu:study-player-selected', { detail: { presence } }))
-      })
-      this.#socialObjects.push(container)
       if (seat?.foregroundAsset && (this.#roomId === 'library' || this.#roomId === 'chim-alan' || this.#roomId === 'grass-amphitheatre')) {
         const asset = seat.foregroundAsset
         const foreground = this.add.image(asset.x, asset.y, `seat-foreground:${this.#roomId}:${seat.id}`)
@@ -1039,6 +1234,13 @@ export class ImageRoomScene extends Phaser.Scene {
           .setDepth(imageRoomActorDepth(anchor, 20))
         this.#socialObjects.push(foreground)
       }
+    }
+    for (const [userId, container] of this.#socialActorsByUserId) {
+      if (activeUserIds.has(userId)) continue
+      this.tweens.killTweensOf(container)
+      container.destroy()
+      this.#socialActorsByUserId.delete(userId)
+      this.#socialObjects = this.#socialObjects.filter((object) => object !== container)
     }
   }
 
@@ -1256,6 +1458,7 @@ export class ImageRoomScene extends Phaser.Scene {
       output.textContent = state.toUpperCase()
       output.dataset.state = state
     }
+    this.#syncSeatAction()
   }
 
   #nearestNodeId(point: WorldPoint, z = this.#currentZ): string {
@@ -1593,6 +1796,52 @@ export class ImageRoomScene extends Phaser.Scene {
     }
   }
 
+  #nearestAvailableSeat(): ImageRoomSeat | null {
+    const ownerId = this.#adapter.session().account.id
+    const candidate = resolveNearestAvailableSeat(
+      { x: this.#avatar.x, y: this.#avatar.y },
+      this.#room.seats.map((seat) => {
+        const geometry = resolveSeatGeometry(this.#room, seat)
+        const approach = this.#seatApproachPixel(seat)
+        return {
+          seatId: seat.id,
+          x: approach.x,
+          y: approach.y,
+          available: this.#seatReservations.isAvailable(this.#roomId, seat.id, ownerId),
+          reachable: this.#nodeIsReachable(seat.approachNodeId)
+            && this.#navigationField.isWalkable(approach, geometry.approach.z),
+        }
+      }),
+    )
+    return candidate ? this.#room.seats.find((seat) => seat.id === candidate.seatId) ?? null : null
+  }
+
+  async #performSeatAction(): Promise<void> {
+    if (this.#seatActionBusy || document.documentElement.dataset.hudPanel !== 'closed') return
+    const standing = this.#seatedSeat !== null
+    if ((!standing && this.#state !== 'ready') || (standing && this.#state !== 'seated')) return
+    this.#syncSeatReservations(this.#adapter.presence(this.#roomId))
+    const seat = standing ? null : this.#nearestAvailableSeat()
+    if (!standing && !seat) {
+      this.#syncSeatAction()
+      return
+    }
+
+    this.#seatActionBusy = true
+    this.#seatActionPending = standing ? 'stand' : 'sit'
+    this.#syncSeatAction()
+    try {
+      if (standing) await this.stand()
+      else await this.walkToSeat(seat!.id)
+    } catch {
+      this.#showActionError('SEAT UNAVAILABLE')
+    } finally {
+      this.#seatActionBusy = false
+      this.#seatActionPending = null
+      this.#syncSeatAction()
+    }
+  }
+
   async #performStand(activityToken: ActivityToken): Promise<void> {
     const seat = this.#seatedSeat
     if (!seat) return
@@ -1632,6 +1881,14 @@ export class ImageRoomScene extends Phaser.Scene {
 
   async switchRoom(roomId: ImageRoomId): Promise<void> {
     if (roomId === this.#roomId) return
+    const nextAssets = roomTextureAssets(roomId, studyGear.snapshot().equipped.pet)
+    try {
+      await this.#ensureTextureAssets(nextAssets)
+    } catch {
+      this.#showActionError('ROOM UNAVAILABLE')
+      return
+    }
+    if (roomId === this.#roomId) return
     const previousRoomId = this.#roomId
     const ownerId = this.#adapter.session().account.id
     if (!this.#seatedSeat) this.#activity.cancel()
@@ -1639,6 +1896,7 @@ export class ImageRoomScene extends Phaser.Scene {
     if (this.#seatedSeat) await this.stand()
     else if (this.#seatReservations.releaseOwner(ownerId, previousRoomId) > 0) await this.#adapter.releaseSeat()
     this.#renderRoom(roomId)
+    this.#releaseObsoleteRoomTextures(nextAssets)
     await this.#refreshSocialActors()
   }
 
@@ -1679,6 +1937,7 @@ export class ImageRoomScene extends Phaser.Scene {
         ? [{ seatId: person.seatId, ownerId: person.userId }]
         : []
     )))
+    this.#syncSeatAction()
   }
 
   #clearIntentMarker(): void {
@@ -1843,6 +2102,36 @@ export class ImageRoomScene extends Phaser.Scene {
           .catch(() => this.#showActionError('ITEM UNAVAILABLE'))
       })
     })
+    document.querySelectorAll<HTMLButtonElement>('[data-move-direction]').forEach((button) => {
+      button.addEventListener('click', () => {
+        if (document.documentElement.dataset.hudPanel !== 'closed') return
+        const x = Number(button.dataset.moveX)
+        const y = Number(button.dataset.moveY)
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return
+        void this.moveByDirection(x, y)
+      })
+    })
+    document.querySelector<HTMLButtonElement>('#seat-action')?.addEventListener('click', () => {
+      void this.#performSeatAction()
+    })
+    this.#syncSeatAction()
+  }
+
+  #syncSeatAction(): void {
+    const button = document.querySelector<HTMLButtonElement>('#seat-action')
+    if (!button || !this.#avatar) return
+    const mode = this.#seatActionPending ?? (this.#seatedSeat ? 'stand' : 'sit')
+    const availableSeat = mode === 'sit' && !this.#seatActionBusy && this.#state === 'ready'
+      ? this.#nearestAvailableSeat()
+      : null
+    const visible = this.#seatActionBusy || mode === 'stand' || availableSeat !== null
+    button.hidden = !visible
+    button.disabled = !visible || this.#seatActionBusy || (mode === 'stand' ? this.#state !== 'seated' : this.#state !== 'ready')
+    button.dataset.seatAction = mode
+    button.dataset.seatId = mode === 'sit' ? availableSeat?.id ?? '' : this.#seatedSeat?.id ?? ''
+    button.setAttribute('aria-label', mode === 'stand' ? 'Stand' : 'Sit')
+    const label = button.querySelector<HTMLElement>('[data-seat-action-label]')
+    if (label) label.textContent = mode === 'stand' ? 'Stand · E' : 'Sit · E'
   }
 
   #showActionError(message: string): void {
@@ -1989,6 +2278,7 @@ export class ImageRoomScene extends Phaser.Scene {
       },
       snapshot: () => ({
         roomId: this.#roomId,
+        loadedRoomTextureKeys: this.textures.getTextureKeys().filter(isRoomTextureKey).sort(),
         state: this.#state,
         action: this.#avatarController.action,
         direction: this.#avatarController.direction,
@@ -2105,6 +2395,7 @@ declare global {
       }
       snapshot(): {
         roomId: ImageRoomId
+        loadedRoomTextureKeys: string[]
         state: GameState
         action: AvatarAction
         direction: Direction8
